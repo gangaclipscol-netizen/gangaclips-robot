@@ -75,7 +75,10 @@ def transcripcion(base):
         vtts = list(ex.map(uno, segs))
     out, ultimo = [], ""
     for v in vtts:
-        m = re.search(r"MPEGTS:(\d+)", v); off = int(m.group(1)) / 90000 if m else 0
+        # Los tiempos de Kick ya son los del video (00:18:30 cae en el segundo 1110 del live). El MPEGTS del encabezado
+        # es el arranque del video (62 s) y NO hay que restarlo: restarlo cortaba todos los clips 1 minuto antes.
+        m = re.search(r"LOCAL:(\d+):(\d\d):(\d\d\.\d+)", v)
+        off = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3)) if m else 0
         for a, txt in re.findall(r"(\d+:\d\d:\d\d\.\d+) --> [^\n]+\n(.+?)(?:\n\n|\Z)", v, re.S):
             h, mi, se = a.split(":"); t = int(h) * 3600 + int(mi) * 60 + float(se) - off
             txt = " ".join(txt.split())
