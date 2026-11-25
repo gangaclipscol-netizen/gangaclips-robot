@@ -38,6 +38,7 @@ BOT = os.environ.get("ADFLOW_BOT", "clips")
 IG = os.environ.get("ADFLOW_IG")  # usuario de Instagram (de ~/.adflow-meta.json) donde publicar solo los clips de Kick
 MAX_PUB = int(os.environ.get("ADFLOW_MAX_PUB", "6"))  # tope de publicaciones por corrida (no llenar la cuenta de golpe)
 PUBLICADOS = [0]
+FIJO = [False]  # --n a mano: sacar exactamente esa cantidad
 UA = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
 W, H = 1080, 1920
 FONTSDIR = os.environ.get("ADFLOW_FONTSDIR", r"C\\:/Windows/Fonts")  # en la nube (Linux): /usr/share/fonts
@@ -561,7 +562,11 @@ def procesar(canal, n, vod_idx=None):
             print("  x sin transcripción:", e, flush=True); trans = []
         print("  líneas de transcripción:", len(trans), flush=True)
         if len(trans) < 50: hechos.add(v["slug"]); continue
-        try: elegidos = escoger(nombre, v["session_title"], trans, n)
+        # cuántos clips: ~clips_por_hora del live, entre clips_por_live (mínimo) y clips_max (o lo que se pidió a mano)
+        horas = (v.get("duration") or 0) / 3.6e6
+        cuantos = n if FIJO[0] else max(n, min(canal.get("clips_max", 15), round(horas * canal.get("clips_por_hora", 4))))
+        print(f"  clips a sacar: {cuantos}", flush=True)
+        try: elegidos = escoger(nombre, v["session_title"], trans, cuantos)
         except Exception as e:
             print("  x la IA no respondió:", e, flush=True); hechos.add(v["slug"]); continue
         print("  la IA escogió:", len(elegidos), flush=True)
@@ -616,6 +621,7 @@ def _main(a):
         if a.canal and a.canal.lower() not in (c.get("kick") or c.get("youtube") or "").lower() + c["nombre"].lower(): continue
         if c.get("youtube") and not os.environ.get("ADFLOW_NUBE") and not a.canal:
             print(f"{c['nombre']}: lo hace la nube (carlotta.yml); el PC solo le sube los videos", flush=True); continue
+        FIJO[0] = bool(a.n)
         try: procesar(c, a.n or c.get("clips_por_live", 6), a.vod)
         except Exception as e: print("error", c["nombre"], e, flush=True)
     print("listo", flush=True)
