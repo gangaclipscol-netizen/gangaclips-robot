@@ -276,6 +276,58 @@ def overlay(gancho, credito, dst, y_video, h_video):
     im.save(dst)
 
 
+def camara_del_streamer(video, ini, fin):
+    """Busca la cámara del streamer (cara pequeña y quieta en el mismo lugar = cámara en una esquina sobre el juego).
+    Devuelve (x, y, ancho, alto) de la cara en píxeles del video, o None si el streamer llena la pantalla o no se ve."""
+    try:
+        import cv2
+    except Exception:
+        return None
+    det = cv2.FaceDetectorYN.create(str(AQUI / "modelos" / "yunet.onnx"), "", (320, 320), 0.7)  # YuNet (OpenCV, MIT)
+    cap = cv2.VideoCapture(str(video)); caras = []; alto_video = 0
+    for k in range(8):  # 8 cuadros repartidos en el clip
+        cap.set(cv2.CAP_PROP_POS_MSEC, (ini + (fin - ini) * (k + 0.5) / 8) * 1000)
+        ok, img = cap.read()
+        if not ok: continue
+        alto_video = img.shape[0]
+        det.setInputSize((img.shape[1], img.shape[0]))
+        _, fs = det.detect(img)
+        fs = [f[:4] for f in (fs if fs is not None else []) if f[3] >= alto_video * 0.05]
+        if fs: caras.append(max(fs, key=lambda f: f[2] * f[3]))
+    cap.release()
+    if len(caras) < 3: return None  # casi no aparece una cara: no es una cámara fija
+    import statistics as st
+    x, y, w, h = (st.median(int(cf[i]) for cf in caras) for i in range(4))
+    quieta = sum(abs(cf[0] - x) < w * 0.6 and abs(cf[1] - y) < h * 0.6 for cf in caras) >= len(caras) * 0.7
+    if not quieta or h > alto_video * 0.28: return None  # se mueve o es grande: el streamer ocupa la pantalla (IRL / charla)
+    return x, y, w, h
+
+
+def encuadre(crudo, ini, fin, yv, hv):
+    """Filtro de ffmpeg que deja el video vertical en [x] sin perder lo importante:
+    - gameplay con cámara en una esquina: arriba la cámara grande y abajo el juego a todo lo ancho;
+    - IRL / charla: el video casi completo (4:3) sobre el mismo video difuminado de fondo."""
+    fondo = f"[a]scale=-2:{H},crop={W}:{H},boxblur=25:2,eq=brightness=-0.18,setsar=1[bg]"
+    cam = camara_del_streamer(crudo, ini, fin)
+    if cam:
+        x, y, w, h = cam
+        ch, gh = 600, hv - 600  # alto de la cámara y del juego en el video final
+        alto = h * 3.0; ancho = alto * W / ch  # recuadro alrededor de la cara con la proporción del espacio de arriba
+        cx, cy = x + w / 2, y + h / 2 + h * 0.25  # un poco más abajo de la cara para que salgan los hombros
+        print(f"  encuadre: cámara + juego (cara en {int(x)},{int(y)})", flush=True)
+        return (f"[0:v]split=3[a][b][c];{fondo};"
+                f"[b]crop=min(iw\\,{ancho:.0f}):min(ih\\,{alto:.0f}):max(0\\,min(iw-ow\\,{cx - ancho / 2:.0f})):max(0\\,min(ih-oh\\,{cy - alto / 2:.0f})),"
+                f"scale={W}:{ch},setsar=1[cam];"
+                f"[c]crop=iw:min(ih\\,iw*{gh}/{W}):0:(ih-oh)/2,scale={W}:{gh},setsar=1[juego];"
+                f"[bg][cam]overlay=0:{yv}[t1];[t1][juego]overlay=0:{yv + ch},"
+                f"drawbox=x=0:y={yv + ch - 3}:w={W}:h=6:color=0x53fc18@1:t=fill[x]")
+    print("  encuadre: video casi completo (4:3) con fondo difuminado", flush=True)
+    vh = round(W * 3 / 4)
+    return (f"[0:v]split=2[a][b];{fondo};"
+            f"[b]crop=min(iw\\,ih*4/3):ih:(iw-ow)/2:0,scale={W}:{vh},setsar=1[m];"
+            f"[bg][m]overlay=0:{yv + (hv - vh) // 2}[x]")
+
+
 def hacer_clip(c, stream, nombre, slug, t, credito=None):
     t.mkdir(parents=True, exist_ok=True)
     # 20 s de margen a cada lado: la revisión con el audio real puede mover el corte (los subtítulos de Kick fallan)
@@ -297,13 +349,12 @@ def hacer_clip(c, stream, nombre, slug, t, credito=None):
     # subir los subtítulos debajo del video
     s = (t / "subs.ass").read_text(encoding="utf-8").replace(",2,70,70,560,1", ",2,70,70,640,1")
     (t / "subs.ass").write_text(s, encoding="utf-8")
-    hv = 1150; yv = 400  # pantalla completa vertical (recorte al centro, donde está el streamer)
+    hv = 1150; yv = 400  # zona del video entre el gancho (arriba) y el crédito (abajo)
     overlay(c["gancho"], credito or f"{nombre} en Kick  ·  kick.com/{slug}", t / "ov.png", yv, hv)
     titulo = re.sub(r'[\\/:*?"<>|]', "", c["titulo"])[:70].strip()
     dst = SALIDA / nombre / f"{datetime.date.today():%Y-%m-%d} - {titulo}.mp4"
     dst.parent.mkdir(parents=True, exist_ok=True)
-    fc = (f"[0:v]crop=ih*9/16:ih:(iw-ow)/2:0,scale={W}:{H},setsar=1[x];"
-          f"[x][1:v]overlay=0:0,subtitles=subs.ass:fontsdir={FONTSDIR},format=yuv420p[v]")
+    fc = encuadre(crudo, ini, fin, yv, hv) + f";[x][1:v]overlay=0:0,subtitles=subs.ass:fontsdir={FONTSDIR},format=yuv420p[v]"
     sh(["ffmpeg", "-y", "-ss", f"{ini:.2f}", "-to", f"{fin:.2f}", "-i", "crudo.mp4", "-i", "ov.png", "-filter_complex", fc,
         "-map", "[v]", "-map", "0:a", "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-c:a", "aac", "-b:a", "192k",
         "-af", "loudnorm=I=-14:TP=-1.5", "-movflags", "+faststart", str(dst)], cwd=t)
