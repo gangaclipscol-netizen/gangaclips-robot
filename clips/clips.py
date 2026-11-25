@@ -170,7 +170,10 @@ del live "{titulo_live}" de {nombre}. Cada línea empieza con [segundo del video
 
 Escoge los {n} MEJORES momentos para clips de TikTok/YouTube Shorts/Reels:
 - Que se entiendan solos, sin contexto (historia completa, chiste con remate, reacción fuerte, polémica, consejo, momento épico o emotivo).
-- Duración entre 25 y 70 segundos. Que empiece justo antes de lo bueno y termine después del remate.
+- Duración entre 25 y 70 segundos. "inicio" = el segundo donde EMPIEZA ese tema (no antes): lo prometido en el título
+  tiene que oírse en los primeros segundos. "fin" = justo después del remate o cierre.
+- UN SOLO TEMA por clip: si en medio cambian de tema, termina el clip antes del cambio.
+- El título describe lo que se oye en el clip, sin inventar ni prometer algo que no pasa.
 - EVITA: cuando suena música o canta (copyright), casino/apuestas, odio, contenido sexual, datos personales de terceros.
 - No repitas el mismo tema.
 {extra}
@@ -182,6 +185,12 @@ Ordena de mejor a peor.
 
 TRANSCRIPCIÓN:
 {lineas}"""
+    clips = json.loads(re.search(r"\[.*\]", ia(prompt), re.S).group(0))
+    return [c for c in clips if 15 <= c["fin"] - c["inicio"] <= 90][:n]
+
+
+def ia(prompt):
+    """Texto de la IA: Gemini y, si está sin cupo, Groq de respaldo."""
     key = os.environ.get("GEMINI_API_KEY")
     if not key: raise SystemExit("Falta GEMINI_API_KEY")
     body = {"contents": [{"parts": [{"text": prompt}]}],
@@ -207,8 +216,47 @@ TRANSCRIPCIÓN:
             "messages": [{"role": "user", "content": corto}]}).encode(),
             {"Content-Type": "application/json", "Authorization": "Bearer " + gk, "User-Agent": "adflow-clips"})
         txt = json.loads(urllib.request.urlopen(req, timeout=300).read())["choices"][0]["message"]["content"]
-    clips = json.loads(re.search(r"\[.*\]", txt, re.S).group(0))
-    return [c for c in clips if 15 <= c["fin"] - c["inicio"] <= 90][:n]
+    return txt
+
+
+def revisar(c, pals, tono="español colombiano"):
+    """Segunda pasada con lo que REALMENTE se oye (Whisper del pedazo cortado con margen): ajusta inicio/fin para que el
+    tema esté desde el arranque y sea uno solo, corrige título y gancho, o descarta. Devuelve c actualizado o None."""
+    frases, actual = [], []
+    for w, x, y in pals:  # frases cortas con su segundo, para que la IA ubique bien los cortes
+        actual.append((w, x, y))
+        if w.endswith((".", "?", "!", ",")) or len(actual) >= 12 or (y - actual[0][1]) > 6:
+            frases.append(f"[{actual[0][1]:.1f}-{actual[-1][2]:.1f}] " + " ".join(p[0] for p in actual)); actual = []
+    if actual: frases.append(f"[{actual[0][1]:.1f}-{actual[-1][2]:.1f}] " + " ".join(p[0] for p in actual))
+    prompt = f"""Eres editor de clips virales. Este es EXACTAMENTE lo que se dice en un pedazo de un live (cada línea:
+[segundo inicial-segundo final] texto). Se propuso este clip:
+- título: {c['titulo']}
+- gancho en pantalla: {c['gancho']}
+- por qué: {c.get('por_que', '')}
+
+Decide el mejor clip DENTRO de este pedazo:
+1. "inicio": el segundo donde EMPIEZA el tema (lo del título se tiene que oír en los primeros 3 segundos). Usa un segundo inicial de línea.
+2. Un solo tema de principio a fin: si cambian de tema, corta antes.
+3. "fin": justo después del remate o cierre de ese tema. Usa un segundo final de línea.
+4. Entre 20 y 75 segundos.
+5. "titulo" (máx 70 caracteres, en {tono}) y "gancho" (máx 6 palabras, MAYÚSCULAS) tienen que decir lo que de verdad se oye; reescríbelos si no cuadran.
+Si el tema prometido no está aquí o no sale un buen clip, responde {{"descartar": true, "motivo": "..."}}.
+
+Responde SOLO un JSON: {{"inicio": n, "fin": n, "titulo": "...", "gancho": "...", "descartar": false}}
+
+LO QUE SE DICE:
+""" + "\n".join(frases)
+    try:
+        r = json.loads(re.search(r"\{.*\}", ia(prompt), re.S).group(0))
+    except Exception as e:
+        print("  x revisión de la IA falló (dejo el corte original):", e, flush=True); return c
+    if r.get("descartar"):
+        print("  ✗ descartado en la revisión:", r.get("motivo", ""), flush=True); return None
+    try: ini, fin = float(r["inicio"]), float(r["fin"])
+    except Exception: return c
+    if not 15 <= fin - ini <= 90: return c
+    c = {**c, "_ini": ini, "_fin": fin, "titulo": r.get("titulo") or c["titulo"], "gancho": r.get("gancho") or c["gancho"]}
+    return c
 
 
 # ---------- 3. cortar y editar ----------
@@ -230,14 +278,20 @@ def overlay(gancho, credito, dst, y_video, h_video):
 
 def hacer_clip(c, stream, nombre, slug, t, credito=None):
     t.mkdir(parents=True, exist_ok=True)
-    a, b = c["inicio"] - 1.0, c["fin"] + 1.5
+    # 20 s de margen a cada lado: la revisión con el audio real puede mover el corte (los subtítulos de Kick fallan)
+    a, b = max(0.0, c["inicio"] - 20), c["fin"] + 20
     crudo = t / "crudo.mp4"
     sh(["ffmpeg", "-y", "-ss", f"{a:.2f}", "-i", stream, "-t", f"{b - a:.2f}", "-r", "30", "-c:v", "libx264",
         "-preset", "veryfast", "-crf", "18", "-c:a", "aac", "-b:a", "192k", str(crudo)])
-    pals = V.palabras(crudo)
+    todas = V.palabras(crudo)
+    r = revisar(c, todas) if todas else c
+    if r is None: raise RuntimeError("descartado: el momento no da para un buen clip")
+    c.update(r)
+    desde, hasta = (c["_ini"], c["_fin"]) if "_ini" in c else (c["inicio"] - a - 1.0, c["fin"] - a + 1.5)
+    pals = [p for p in todas if p[1] >= desde - 0.3 and p[2] <= hasta + 0.3]
     # cortar en límites de palabras: arranca en la primera palabra y termina tras la última
-    ini = max(0.0, pals[0][1] - 0.25) if pals else 0.0
-    fin = min(V.duracion(crudo), pals[-1][2] + 0.6) if pals else V.duracion(crudo)
+    ini = max(0.0, pals[0][1] - 0.25) if pals else max(0.0, desde)
+    fin = min(V.duracion(crudo), pals[-1][2] + 0.6) if pals else min(V.duracion(crudo), hasta)
     pals = [(w, x - ini, y - ini) for w, x, y in pals]
     V.subtitulos(pals, t / "subs.ass")
     # subir los subtítulos debajo del video
@@ -383,11 +437,15 @@ def publicar_ig(video_publico, caption, usuario, archivo=None):
     try:
         datos = {"media_type": "REELS", "caption": caption[:2200], "share_to_feed": "true", "access_token": tok}
         datos.update({"upload_type": "resumable"} if archivo else {"video_url": video_publico})
-        r = requests.post(f"{G}/{ig}/media", data=datos, timeout=60).json()
-        if "id" not in r: print("  x Instagram:", r, flush=True); return None
-        if archivo:
+        for intento in range(3):  # cuenta nueva subiendo seguido: Instagram a veces responde ProcessingFailedError un rato
+            r = requests.post(f"{G}/{ig}/media", data=datos, timeout=60).json()
+            if "id" not in r: print("  x Instagram:", r, flush=True); return None
+            if not archivo: break
             u = _subir_directo(r.get("uri") or f"https://rupload.facebook.com/ig-api-upload/v21.0/{r['id']}", tok, archivo)
-            if not u.get("success"): print("  x Instagram subida:", u, flush=True); return None
+            if u.get("success"): break
+            print(f"  x Instagram subida (intento {intento + 1}):", u, flush=True)
+            if intento == 2: return None
+            time.sleep(60 if intento == 0 else 180)
         for _ in range(40):  # Meta procesa el video (1-5 min)
             time.sleep(10)
             s = requests.get(f"{G}/{r['id']}", params={"fields": "status_code,status", "access_token": tok}, timeout=30).json()
