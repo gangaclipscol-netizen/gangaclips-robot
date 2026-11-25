@@ -4,7 +4,7 @@ name: Vigía de lives
 
 on:
   schedule:
-    - cron: "*/15 * * * *"
+    - cron: "7,22,37,52 * * * *"  # minutos poco congestionados en GitHub
   workflow_dispatch:
     inputs:
       forzar: { description: "arrancar el robot aunque no haya lives nuevos (prueba)", type: boolean, default: false }
