@@ -544,7 +544,11 @@ def procesar(canal, n, vod_idx=None):
     hechos = set(est.get(slug, []))
     vids = [v for v in lives(slug) if not v.get("is_live")]
     if vod_idx is not None: vids = [vids[vod_idx]]
-    else: vids = [v for v in vids[:3] if v["slug"] not in hechos]
+    else:
+        import vigia  # mismo criterio que el vigía: solo lives que terminaron hace menos de 24 h
+        viejos = [v for v in vids[:3] if v["slug"] not in hechos and not vigia.reciente(v)]
+        for v in viejos: print("salto (live de hace más de 24 h):", v["session_title"], flush=True); hechos.add(v["slug"])
+        vids = [v for v in vids[:3] if v["slug"] not in hechos]
     notas = []
     for v in vids:
         cats = {c["name"] for c in v.get("categories") or []}
@@ -552,10 +556,14 @@ def procesar(canal, n, vod_idx=None):
             print("salto (casino):", v["session_title"], flush=True); hechos.add(v["slug"]); continue
         base = v["source"].rsplit("/", 1)[0]
         print(f"live: {v['session_title']} ({v['duration'] / 3.6e6:.1f} h)", flush=True)
-        trans = transcripcion(base)
+        try: trans = transcripcion(base)
+        except Exception as e:  # sin subtítulos (live muy reciente o borrado): no reintentar cada 15 min
+            print("  x sin transcripción:", e, flush=True); trans = []
         print("  líneas de transcripción:", len(trans), flush=True)
         if len(trans) < 50: hechos.add(v["slug"]); continue
-        elegidos = escoger(nombre, v["session_title"], trans, n)
+        try: elegidos = escoger(nombre, v["session_title"], trans, n)
+        except Exception as e:
+            print("  x la IA no respondió:", e, flush=True); hechos.add(v["slug"]); continue
         print("  la IA escogió:", len(elegidos), flush=True)
         stream = base + "/720p60/playlist.m3u8"
         for i, c in enumerate(elegidos):

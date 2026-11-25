@@ -1,0 +1,32 @@
+# Vigía de GangaClips: cada 15 minutos revisa en Kick si algún streamer terminó un live nuevo (unos 20 s, sin costo en
+# un repo público). Si hay alguno y el robot no está trabajando ya, arranca "GangaClips en la nube" (gangaclips.yml).
+name: Vigía de lives
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+concurrency: { group: vigia, cancel-in-progress: false }
+permissions: { actions: write, contents: read }
+
+jobs:
+  revisar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: ¿Hay lives nuevos?
+        id: kick
+        run: |
+          NUEVOS=$(python3 clips/vigia.py)
+          echo "$NUEVOS"
+          echo "hay=$([ -n "$NUEVOS" ] && echo si || echo no)" >> "$GITHUB_OUTPUT"
+      - name: Arrancar el robot
+        if: steps.kick.outputs.hay == 'si'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          OCUPADO=$(gh run list -R "$GITHUB_REPOSITORY" -w gangaclips.yml --json status -q '[.[] | select(.status=="in_progress" or .status=="queued" or .status=="waiting")] | length')
+          if [ "$OCUPADO" != "0" ]; then echo "el robot ya está trabajando; lo hará en la próxima revisión"; exit 0; fi
+          gh workflow run gangaclips.yml -R "$GITHUB_REPOSITORY" && echo "robot arrancado"

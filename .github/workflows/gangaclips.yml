@@ -1,5 +1,5 @@
 # GangaClips (proyecto de Nicolás) en la nube: clips de Westcol y amigos desde Kick, sin usar el PC (3,4 GB de RAM).
-# 5 veces al día (8 a. m., 12 m., 4 p. m., 8 p. m. y 12 a. m. de Colombia) toma los lives nuevos de gangaclips.json, la IA escoge los mejores
+# Lo arranca el Vigía de lives (vigia.yml, revisa Kick cada 15 min) apenas un streamer de gangaclips.json termina un live, la IA escoge los mejores
 # momentos, arma los clips verticales con subtítulos, publica hasta 6 por corrida (~30 al día; la API de Instagram permite 50) en Instagram @gangaclips.col + página de
 # Facebook (API de Meta, subida directa) y manda cada uno al bot de Telegram @gangaclips_bot con ✅/⚠️ por red.
 # A mano: pestaña Actions → "GangaClips en la nube" → Run workflow.
@@ -7,8 +7,6 @@
 name: GangaClips en la nube
 
 on:
-  schedule:
-    - cron: "0 13,17,21,1,5 * * *"
   workflow_dispatch:
     inputs:
       canal: { description: "slug de Kick (vacío = todos)", required: false, default: "" }
