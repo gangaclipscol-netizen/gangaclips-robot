@@ -49,6 +49,8 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}  # respaldo cuando Gemini se queda sin cupo
+          GANGACLIPS_API: https://gangaclips-api.gangaclips.workers.dev  # servidor propio: borradores de TikTok
+          GANGACLIPS_API_KEY: ${{ secrets.GANGACLIPS_API_KEY }}
           PYTHONIOENCODING: utf-8
           ADFLOW_CANALES: gangaclips.json
           ADFLOW_ESTADO_DIR: estado

@@ -412,6 +412,23 @@ def _subir_directo(url, tok, archivo):
                          data=datos, timeout=600).json()
 
 
+def tiktok_borrador(f):
+    """Manda el clip a los borradores de TikTok de la cuenta conectada en GangaClips Publisher (servidor de Cloudflare).
+    Funciona aunque la app no esté aprobada: no publica, solo deja el video en la bandeja. Devuelve True si llegó."""
+    api, k = os.environ.get("GANGACLIPS_API"), os.environ.get("GANGACLIPS_API_KEY")
+    if not (api and k): return False
+    try:
+        import requests
+        with open(f, "rb") as v:
+            r = requests.post(api.rstrip("/") + "/tiktok/draft", headers={"X-Robot-Key": k, "Content-Type": "video/mp4"},
+                              data=v, timeout=300).json()
+        if r.get("publish_id"): print("  📥 TikTok: enviado a borradores", flush=True); return True
+        print("  x TikTok borrador:", str(r)[:200], flush=True)
+    except Exception as e:
+        print("  x TikTok borrador:", e, flush=True)
+    return False
+
+
 def cupo_ig_usado(usuario):
     """Cuántas publicaciones hizo la API en la cuenta de Instagram en las últimas 24 h (Instagram permite 50)."""
     cfg = Path.home() / ".adflow-meta.json"
@@ -674,8 +691,10 @@ def procesar(canal, n, vod_idx=None):
                 if IG and PUBLICADOS[0] < MAX_PUB and cupo_ig_usado(IG) < MAX_DIA:  # publicar solo en Instagram + página de Facebook (API de Meta)
                     hechas = {"Instagram": publicar_ig(None, texto, IG, archivo=f), "Facebook": publicar_fb(None, texto, IG, archivo=f)}
                     if any(hechas.values()): PUBLICADOS[0] += 1
-                redes = "\n".join(f"✅ {k}: {u}" if u else f"⚠️ {k}: NO se publicó (súbelo tú)" for k, u in hechas.items())
-                pendientes = "TikTok, YouTube" + ("" if hechas else ", Instagram, Facebook")
+                borrador = tiktok_borrador(f)  # TikTok: el clip queda en los borradores de la app (2 toques para publicar)
+                redes ="\n".join(f"✅ {k}: {u}" if u else f"⚠️ {k}: NO se publicó (súbelo tú)" for k, u in hechas.items())
+                if borrador: redes = (redes + "\n" if redes else "") + "📥 TikTok: en tus borradores (copia el texto de arriba)"
+                pendientes = ("" if borrador else "TikTok, ") + "YouTube" + ("" if hechas else ", Instagram, Facebook")
                 TG.enviar(f, f"✂️ {nombre}{' 🔴 EN VIVO' if en_vivo else ''}\n\n{texto}\n\n{redes + chr(10) if redes else ''}⚠️ Publicar a mano: {pendientes}", bot=BOT)
                 notas.append(f"{f.name}\n{c['titulo']} {' '.join(c.get('hashtags', []))}\n"
                              f"Crédito: {nombre} en vivo en kick.com/{slug}\n")
