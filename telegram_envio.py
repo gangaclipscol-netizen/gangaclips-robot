@@ -49,6 +49,19 @@ def texto(mensaje, bot="clips"):
         return False
 
 
+def copiable(mensaje, bot="clips"):
+    """Mensaje en formato código: en Telegram se copia con UN toque (para pegarlo en TikTok). Nunca rompe."""
+    c = _cfg(bot)
+    if not c or not c.get("token") or not c.get("chat_id"): return False
+    import html, requests
+    try:
+        return requests.post(f"https://api.telegram.org/bot{c['token']}/sendMessage",
+                             data={"chat_id": c["chat_id"], "parse_mode": "HTML",
+                                   "text": "<code>" + html.escape(mensaje[:3900]) + "</code>"}, timeout=30).ok
+    except Exception:
+        return False
+
+
 def _comprimir(video, mb=45):
     """Copia del video que pesa menos de `mb` MB (bitrate según la duración). Si falla, devuelve el original."""
     import subprocess, tempfile

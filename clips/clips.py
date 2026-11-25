@@ -693,9 +693,10 @@ def procesar(canal, n, vod_idx=None):
                     if any(hechas.values()): PUBLICADOS[0] += 1
                 borrador = tiktok_borrador(f)  # TikTok: el clip queda en los borradores de la app (2 toques para publicar)
                 redes ="\n".join(f"✅ {k}: {u}" if u else f"⚠️ {k}: NO se publicó (súbelo tú)" for k, u in hechas.items())
-                if borrador: redes = (redes + "\n" if redes else "") + "📥 TikTok: en tus borradores (copia el texto de arriba)"
+                if borrador: redes = (redes + "\n" if redes else "") + "📥 TikTok: en tus borradores (toca el mensaje de abajo para copiar el texto)"
                 pendientes = ("" if borrador else "TikTok, ") + "YouTube" + ("" if hechas else ", Instagram, Facebook")
                 TG.enviar(f, f"✂️ {nombre}{' 🔴 EN VIVO' if en_vivo else ''}\n\n{texto}\n\n{redes + chr(10) if redes else ''}⚠️ Publicar a mano: {pendientes}", bot=BOT)
+                TG.copiable(texto, bot=BOT)  # un toque en Telegram = texto copiado para pegarlo en TikTok
                 notas.append(f"{f.name}\n{c['titulo']} {' '.join(c.get('hashtags', []))}\n"
                              f"Crédito: {nombre} en vivo en kick.com/{slug}\n")
             except Exception as e:
