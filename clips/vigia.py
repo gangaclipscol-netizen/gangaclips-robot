@@ -32,13 +32,26 @@ def main():
         slug = c.get("kick")
         if not slug: continue
         try:
-            vids = [v for v in lives(slug) if not v.get("is_live")][:3]  # igual que clips.py: los 3 más recientes
+            todos = lives(slug)
         except Exception as e:
             print(f"{slug}: no pude revisar ({e})", file=sys.stderr); continue
+        vids = [v for v in todos if not v.get("is_live")][:3]  # igual que clips.py: los 3 más recientes
         nuevos = [v for v in vids if v["slug"] not in set(est.get(slug, [])) and reciente(v)]
         if nuevos:
             print(slug)
             print(f"{slug}: {len(nuevos)} live(s) nuevo(s): {nuevos[0].get('session_title', '')}", file=sys.stderr)
+            continue
+        # en vivo: ¿ya hay 12 min nuevos desde la última revisión? (suma de la duración de los trozos de subtítulos)
+        for v in [v for v in todos if v.get("is_live")][:1]:
+            try:
+                base = v["source"].rsplit("/", 1)[0]
+                pl = urllib.request.urlopen(urllib.request.Request(base + "/subtitles/es/playlist.m3u8", headers=UA), timeout=30).read().decode()
+                van = sum(float(l.split(":")[1].split(",")[0]) for l in pl.splitlines() if l.startswith("#EXTINF:"))
+            except Exception as e:
+                print(f"{slug}: en vivo pero sin subtítulos aún ({e})", file=sys.stderr); continue
+            if van - est.get("en_vivo", {}).get(v["slug"], 0) >= 12 * 60:
+                print(slug)
+                print(f"{slug}: EN VIVO, {van / 60:.0f} min ({v.get('session_title', '')})", file=sys.stderr)
 
 
 if __name__ == "__main__":

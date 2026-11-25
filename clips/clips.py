@@ -37,6 +37,7 @@ ESTADO = Path(os.environ.get("ADFLOW_ESTADO", AQUI / "estado.json"))
 BOT = os.environ.get("ADFLOW_BOT", "clips")
 IG = os.environ.get("ADFLOW_IG")  # usuario de Instagram (de ~/.adflow-meta.json) donde publicar solo los clips de Kick
 MAX_PUB = int(os.environ.get("ADFLOW_MAX_PUB", "6"))  # tope de publicaciones por corrida (no llenar la cuenta de golpe)
+MAX_DIA = int(os.environ.get("ADFLOW_MAX_DIA", "40"))  # tope diario de publicaciones automáticas (la API de Instagram permite 50)
 PUBLICADOS = [0]
 FIJO = [False]  # --n a mano: sacar exactamente esa cantidad
 UA = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
@@ -543,32 +544,50 @@ def procesar(canal, n, vod_idx=None):
     nombre, slug = canal["nombre"], canal["kick"]
     est = json.loads(ESTADO.read_text(encoding="utf-8")) if ESTADO.exists() else {}
     hechos = set(est.get(slug, []))
-    vids = [v for v in lives(slug) if not v.get("is_live")]
+    vivo = est.setdefault("en_vivo", {})  # {slug del live: último segundo ya revisado} → clips MIENTRAS sigue el live
+    hoy = datetime.date.today().isoformat()
+    if est.get("publicados_hoy", {}).get("fecha") != hoy: est["publicados_hoy"] = {"fecha": hoy, "n": 0}
+    todos = lives(slug)
+    vids = [v for v in todos if not v.get("is_live")]
     if vod_idx is not None: vids = [vids[vod_idx]]
     else:
         import vigia  # mismo criterio que el vigía: solo lives que terminaron hace menos de 24 h
         viejos = [v for v in vids[:3] if v["slug"] not in hechos and not vigia.reciente(v)]
-        for v in viejos: print("salto (live de hace más de 24 h):", v["session_title"], flush=True); hechos.add(v["slug"])
-        vids = [v for v in vids[:3] if v["slug"] not in hechos]
+        for v in viejos:
+            print("salto (live de hace más de 24 h):", v["session_title"], flush=True); hechos.add(v["slug"]); vivo.pop(v["slug"], None)
+        vids = [v for v in todos if v.get("is_live")][:1] + [v for v in vids[:3] if v["slug"] not in hechos]
     notas = []
     for v in vids:
+        en_vivo = bool(v.get("is_live"))
         cats = {c["name"] for c in v.get("categories") or []}
         if cats & NO_CATEG:
-            print("salto (casino):", v["session_title"], flush=True); hechos.add(v["slug"]); continue
+            print("salto (casino):", v["session_title"], flush=True)
+            if not en_vivo: hechos.add(v["slug"]); vivo.pop(v["slug"], None)
+            continue
         base = v["source"].rsplit("/", 1)[0]
-        print(f"live: {v['session_title']} ({v['duration'] / 3.6e6:.1f} h)", flush=True)
         try: trans = transcripcion(base)
         except Exception as e:  # sin subtítulos (live muy reciente o borrado): no reintentar cada 15 min
             print("  x sin transcripción:", e, flush=True); trans = []
-        print("  líneas de transcripción:", len(trans), flush=True)
-        if len(trans) < 50: hechos.add(v["slug"]); continue
-        # cuántos clips: ~clips_por_hora del live, entre clips_por_live (mínimo) y clips_max (o lo que se pidió a mano)
-        horas = (v.get("duration") or 0) / 3.6e6
-        cuantos = n if FIJO[0] else max(n, min(canal.get("clips_max", 15), round(horas * canal.get("clips_por_hora", 4))))
+        desde = vivo.get(v["slug"], 0) if vod_idx is None else 0
+        hasta = trans[-1][0] if trans else 0
+        print(f"live{' EN VIVO' if en_vivo else ''}: {v['session_title']} (min {desde / 60:.0f} a {hasta / 60:.0f})", flush=True)
+        if en_vivo and hasta - desde < 12 * 60:
+            print("  aún no hay 12 min nuevos; espero", flush=True); continue
+        ventana = [x for x in trans if x[0] >= desde - 60]
+        if len(ventana) < 50:
+            print("  muy poca transcripción", flush=True)
+            if not en_vivo: hechos.add(v["slug"]); vivo.pop(v["slug"], None)
+            continue
+        # cuántos clips: ~clips_por_hora de lo que falta revisar; un live revisado completo saca mínimo clips_por_live
+        cuantos = round((hasta - desde) / 3600 * canal.get("clips_por_hora", 4))
+        cuantos = min(canal.get("clips_max", 15), max(1 if desde or en_vivo else n, cuantos))
+        if FIJO[0]: cuantos = n
         print(f"  clips a sacar: {cuantos}", flush=True)
-        try: elegidos = escoger(nombre, v["session_title"], trans, cuantos)
+        try: elegidos = escoger(nombre, v["session_title"], ventana, cuantos)
         except Exception as e:
-            print("  x la IA no respondió:", e, flush=True); hechos.add(v["slug"]); continue
+            print("  x la IA no respondió:", e, flush=True); elegidos = []
+        # en vivo: no cortar momentos pegados al borde (todavía no se ven completos)
+        elegidos = [c for c in elegidos if c["inicio"] >= desde - 60 and (not en_vivo or c["fin"] <= hasta - 20)]
         print("  la IA escogió:", len(elegidos), flush=True)
         stream = base + "/720p60/playlist.m3u8"
         for i, c in enumerate(elegidos):
@@ -581,20 +600,22 @@ def procesar(canal, n, vod_idx=None):
                 tags = ' '.join(c.get('hashtags', []))
                 texto = f"{c['titulo']}\n\n🎥 {nombre} en vivo en kick.com/{slug}\nCuenta de fans · No oficial\n\n{tags}"
                 hechas = {}
-                if IG and PUBLICADOS[0] < MAX_PUB:  # publicar solo en Instagram + página de Facebook (API de Meta)
+                dia = est["publicados_hoy"]
+                if IG and PUBLICADOS[0] < MAX_PUB and dia["n"] < MAX_DIA:  # publicar solo en Instagram + página de Facebook (API de Meta)
                     hechas = {"Instagram": publicar_ig(None, texto, IG, archivo=f), "Facebook": publicar_fb(None, texto, IG, archivo=f)}
-                    if any(hechas.values()): PUBLICADOS[0] += 1
+                    if any(hechas.values()): PUBLICADOS[0] += 1; dia["n"] += 1
                 redes = "\n".join(f"✅ {k}: {u}" if u else f"⚠️ {k}: NO se publicó (súbelo tú)" for k, u in hechas.items())
                 pendientes = "TikTok, YouTube" + ("" if hechas else ", Instagram, Facebook")
-                TG.enviar(f, f"✂️ {nombre}\n\n{texto}\n\n{redes + chr(10) if redes else ''}⚠️ Publicar a mano: {pendientes}", bot=BOT)
+                TG.enviar(f, f"✂️ {nombre}{' 🔴 EN VIVO' if en_vivo else ''}\n\n{texto}\n\n{redes + chr(10) if redes else ''}⚠️ Publicar a mano: {pendientes}", bot=BOT)
                 notas.append(f"{f.name}\n{c['titulo']} {' '.join(c.get('hashtags', []))}\n"
                              f"Crédito: {nombre} en vivo en kick.com/{slug}\n")
             except Exception as e:
                 print("  x clip", i, e, flush=True)
-        hechos.add(v["slug"])
+        if en_vivo: vivo[v["slug"]] = max(desde, hasta - 20)
+        else: hechos.add(v["slug"]); vivo.pop(v["slug"], None)
         shutil.rmtree(TMP / v["slug"], ignore_errors=True)
     est[slug] = sorted(hechos)
-    ESTADO.write_text(json.dumps(est, indent=1), encoding="utf-8")
+    ESTADO.write_text(json.dumps(est, indent=1, ensure_ascii=False), encoding="utf-8")
     if notas:
         p = SALIDA / nombre / "Para publicar.txt"
         viejo = p.read_text(encoding="utf-8") if p.exists() else ""

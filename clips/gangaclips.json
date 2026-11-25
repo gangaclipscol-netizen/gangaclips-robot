@@ -1,9 +1,9 @@
 [
- {"nombre": "Westcol", "kick": "westcol", "clips_por_live": 6, "clips_por_hora": 4, "clips_max": 15},
- {"nombre": "Lonche", "kick": "lonche", "clips_por_live": 6, "clips_por_hora": 4, "clips_max": 15},
- {"nombre": "LaSapaaaaa", "kick": "lasapaaaaa", "clips_por_live": 6, "clips_por_hora": 4, "clips_max": 15},
- {"nombre": "Samulx", "kick": "samulx", "clips_por_live": 6, "clips_por_hora": 4, "clips_max": 15},
- {"nombre": "Chanty", "kick": "chanty", "clips_por_live": 6, "clips_por_hora": 4, "clips_max": 15},
- {"nombre": "Willito", "kick": "willito", "clips_por_live": 6, "clips_por_hora": 4, "clips_max": 15},
- {"nombre": "Reydelacity", "kick": "reydelacity", "clips_por_live": 6, "clips_por_hora": 4, "clips_max": 15}
+ {"nombre": "Westcol", "kick": "westcol", "clips_por_live": 6, "clips_por_hora": 6, "clips_max": 20},
+ {"nombre": "Lonche", "kick": "lonche", "clips_por_live": 6, "clips_por_hora": 6, "clips_max": 20},
+ {"nombre": "LaSapaaaaa", "kick": "lasapaaaaa", "clips_por_live": 6, "clips_por_hora": 6, "clips_max": 20},
+ {"nombre": "Samulx", "kick": "samulx", "clips_por_live": 6, "clips_por_hora": 6, "clips_max": 20},
+ {"nombre": "Chanty", "kick": "chanty", "clips_por_live": 6, "clips_por_hora": 6, "clips_max": 20},
+ {"nombre": "Willito", "kick": "willito", "clips_por_live": 6, "clips_por_hora": 6, "clips_max": 20},
+ {"nombre": "Reydelacity", "kick": "reydelacity", "clips_por_live": 6, "clips_por_hora": 6, "clips_max": 20}
 ]
