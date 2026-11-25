@@ -6,6 +6,8 @@ on:
   schedule:
     - cron: "*/15 * * * *"
   workflow_dispatch:
+    inputs:
+      forzar: { description: "arrancar el robot aunque no haya lives nuevos (prueba)", type: boolean, default: false }
 
 concurrency: { group: vigia, cancel-in-progress: false }
 permissions: { actions: write, contents: read }
@@ -23,7 +25,7 @@ jobs:
           echo "$NUEVOS"
           echo "hay=$([ -n "$NUEVOS" ] && echo si || echo no)" >> "$GITHUB_OUTPUT"
       - name: Arrancar el robot
-        if: steps.kick.outputs.hay == 'si'
+        if: steps.kick.outputs.hay == 'si' || inputs.forzar
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
