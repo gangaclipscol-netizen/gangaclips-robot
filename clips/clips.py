@@ -262,13 +262,13 @@ LO QUE SE DICE:
 # ---------- 3. cortar y editar ----------
 def overlay(gancho, credito, dst, y_video, h_video):
     im = Image.new("RGBA", (W, H), (0, 0, 0, 0)); d = ImageDraw.Draw(im)
-    f, ls = V.texto_ajustado(d, V.quitar_emoji(gancho).upper(), V.F_BLACK, W - 120, 92, 50)
+    f, ls = V.texto_ajustado(d, V.quitar_emoji(gancho).upper(), V.F_BLACK, W - 160, 66, 40)  # más chico: que no estorbe
     alto = len(ls) * int(f.size * 1.12)
     y = max(150, y_video - 40 - alto)
     for l in ls:
         tw = d.textlength(l, font=f)
-        d.text(((W - tw) / 2, y), l, font=f, fill="white", stroke_width=8, stroke_fill="black"); y += int(f.size * 1.12)
-    fc = ImageFont.truetype(V.F_BLACK, 30)
+        d.text(((W - tw) / 2, y), l, font=f, fill="white", stroke_width=6, stroke_fill="black"); y += int(f.size * 1.12)
+    fc = ImageFont.truetype(V.F_BLACK, 26)
     tw = d.textlength(credito, font=fc)
     yc = y_video + h_video + 18
     d.rounded_rectangle(((W - tw) / 2 - 18, yc, (W + tw) / 2 + 18, yc + 50), 12, fill=(83, 252, 24, 235))
@@ -347,7 +347,9 @@ def hacer_clip(c, stream, nombre, slug, t, credito=None):
     pals = [(w, x - ini, y - ini) for w, x, y in pals]
     V.subtitulos(pals, t / "subs.ass")
     # subir los subtítulos debajo del video
-    s = (t / "subs.ass").read_text(encoding="utf-8").replace(",2,70,70,560,1", ",2,70,70,640,1")
+    s = (t / "subs.ass").read_text(encoding="utf-8").replace(",2,70,70,560,1", ",2,90,90,430,1")
+    # subtítulos más chicos (84 → 60, borde 7 → 5) y más abajo, para que tapen menos el video
+    s = s.replace("Arial Black,84,", "Arial Black,60,").replace(",1,7,3,2,", ",1,5,2,2,")
     (t / "subs.ass").write_text(s, encoding="utf-8")
     hv = 1150; yv = 400  # zona del video entre el gancho (arriba) y el crédito (abajo)
     overlay(c["gancho"], credito or f"{nombre} en Kick  ·  kick.com/{slug}", t / "ov.png", yv, hv)
