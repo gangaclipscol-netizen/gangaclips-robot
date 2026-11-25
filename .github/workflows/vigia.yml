@@ -1,5 +1,5 @@
 # Vigía de GangaClips: cada 15 minutos revisa en Kick si algún streamer terminó un live nuevo (unos 20 s, sin costo en
-# un repo público). Si hay alguno y el robot no está trabajando ya, arranca "GangaClips en la nube" (gangaclips.yml).
+# un repo público). Arranca un robot "GangaClips en la nube" (gangaclips.yml) por cada streamer con trabajo, en paralelo.
 name: Vigía de lives
 
 on:
@@ -21,14 +21,15 @@ jobs:
       - name: ¿Hay lives nuevos?
         id: kick
         run: |
-          NUEVOS=$(python3 clips/vigia.py)
-          echo "$NUEVOS"
-          echo "hay=$([ -n "$NUEVOS" ] && echo si || echo no)" >> "$GITHUB_OUTPUT"
-      - name: Arrancar el robot
+          NUEVOS=$(python3 clips/vigia.py | tr '\n' ' ')
+          echo "pendientes: $NUEVOS"
+          echo "slugs=$NUEVOS" >> "$GITHUB_OUTPUT"
+          echo "hay=$([ -n "${NUEVOS// /}" ] && echo si || echo no)" >> "$GITHUB_OUTPUT"
+      - name: Arrancar un robot por streamer (en paralelo)
         if: steps.kick.outputs.hay == 'si' || inputs.forzar
         env:
           GH_TOKEN: ${{ github.token }}
+          NUEVOS: ${{ steps.kick.outputs.slugs }}
         run: |
-          OCUPADO=$(gh run list -R "$GITHUB_REPOSITORY" -w gangaclips.yml --json status -q '[.[] | select(.status=="in_progress" or .status=="queued" or .status=="waiting")] | length')
-          if [ "$OCUPADO" != "0" ]; then echo "el robot ya está trabajando; lo hará en la próxima revisión"; exit 0; fi
-          gh workflow run gangaclips.yml -R "$GITHUB_REPOSITORY" && echo "robot arrancado"
+          # cada streamer tiene su propia fila (concurrency en gangaclips.yml): si su robot sigue trabajando, este espera turno
+          for s in ${NUEVOS:-westcol}; do gh workflow run gangaclips.yml -R "$GITHUB_REPOSITORY" -f canal="$s" && echo "robot de $s arrancado"; done

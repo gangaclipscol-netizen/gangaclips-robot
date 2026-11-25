@@ -34,6 +34,7 @@ TMP = Path(os.environ.get("ADFLOW_TMP", BASE / "clips-tmp"))
 # cada cuenta con su lista de streamers, su estado y su bot de Telegram (ej. GangaClips de Nicolás)
 CANALES = os.environ.get("ADFLOW_CANALES")  # si está, NO lee los streamers de la app
 ESTADO = Path(os.environ.get("ADFLOW_ESTADO", AQUI / "estado.json"))
+ESTADO_DIR = Path(os.environ["ADFLOW_ESTADO_DIR"]) if os.environ.get("ADFLOW_ESTADO_DIR") else None  # un archivo por streamer (robots en paralelo)
 BOT = os.environ.get("ADFLOW_BOT", "clips")
 IG = os.environ.get("ADFLOW_IG")  # usuario de Instagram (de ~/.adflow-meta.json) donde publicar solo los clips de Kick
 MAX_PUB = int(os.environ.get("ADFLOW_MAX_PUB", "6"))  # tope de publicaciones por corrida (no llenar la cuenta de golpe)
@@ -357,6 +358,19 @@ def _subir_directo(url, tok, archivo):
                          data=datos, timeout=600).json()
 
 
+def cupo_ig_usado(usuario):
+    """Cuántas publicaciones hizo la API en la cuenta de Instagram en las últimas 24 h (Instagram permite 50)."""
+    cfg = Path.home() / ".adflow-meta.json"
+    try:
+        import requests
+        c = json.loads(cfg.read_bytes().decode("utf-8", errors="replace"))["cuentas"][usuario]
+        r = requests.get(f"https://graph.facebook.com/v21.0/{c['ig_id']}/content_publishing_limit",
+                         params={"fields": "quota_usage", "access_token": c["page_token"]}, timeout=30).json()
+        return int(r["data"][0]["quota_usage"])
+    except Exception as e:
+        print("  x no pude leer el cupo de Instagram:", e, flush=True); return 0
+
+
 def publicar_ig(video_publico, caption, usuario, archivo=None):
     """Publica un Reel en la cuenta `usuario` (ver ~/.adflow-meta.json). Devuelve la URL del reel o None.
     video_publico = URL pública del MP4, o archivo = MP4 local (se sube directo, p. ej. desde GitHub Actions)."""
@@ -542,11 +556,10 @@ def procesar_youtube(canal, n, vod_idx=None):
 def procesar(canal, n, vod_idx=None):
     if "youtube" in canal: return procesar_youtube(canal, n, vod_idx)
     nombre, slug = canal["nombre"], canal["kick"]
-    est = json.loads(ESTADO.read_text(encoding="utf-8")) if ESTADO.exists() else {}
+    archivo = (ESTADO_DIR / f"{slug}.json") if ESTADO_DIR else ESTADO
+    est = json.loads(archivo.read_text(encoding="utf-8")) if archivo.exists() else {}
     hechos = set(est.get(slug, []))
     vivo = est.setdefault("en_vivo", {})  # {slug del live: último segundo ya revisado} → clips MIENTRAS sigue el live
-    hoy = datetime.date.today().isoformat()
-    if est.get("publicados_hoy", {}).get("fecha") != hoy: est["publicados_hoy"] = {"fecha": hoy, "n": 0}
     todos = lives(slug)
     vids = [v for v in todos if not v.get("is_live")]
     if vod_idx is not None: vids = [vids[vod_idx]]
@@ -600,10 +613,9 @@ def procesar(canal, n, vod_idx=None):
                 tags = ' '.join(c.get('hashtags', []))
                 texto = f"{c['titulo']}\n\n🎥 {nombre} en vivo en kick.com/{slug}\nCuenta de fans · No oficial\n\n{tags}"
                 hechas = {}
-                dia = est["publicados_hoy"]
-                if IG and PUBLICADOS[0] < MAX_PUB and dia["n"] < MAX_DIA:  # publicar solo en Instagram + página de Facebook (API de Meta)
+                if IG and PUBLICADOS[0] < MAX_PUB and cupo_ig_usado(IG) < MAX_DIA:  # publicar solo en Instagram + página de Facebook (API de Meta)
                     hechas = {"Instagram": publicar_ig(None, texto, IG, archivo=f), "Facebook": publicar_fb(None, texto, IG, archivo=f)}
-                    if any(hechas.values()): PUBLICADOS[0] += 1; dia["n"] += 1
+                    if any(hechas.values()): PUBLICADOS[0] += 1
                 redes = "\n".join(f"✅ {k}: {u}" if u else f"⚠️ {k}: NO se publicó (súbelo tú)" for k, u in hechas.items())
                 pendientes = "TikTok, YouTube" + ("" if hechas else ", Instagram, Facebook")
                 TG.enviar(f, f"✂️ {nombre}{' 🔴 EN VIVO' if en_vivo else ''}\n\n{texto}\n\n{redes + chr(10) if redes else ''}⚠️ Publicar a mano: {pendientes}", bot=BOT)
@@ -615,7 +627,8 @@ def procesar(canal, n, vod_idx=None):
         else: hechos.add(v["slug"]); vivo.pop(v["slug"], None)
         shutil.rmtree(TMP / v["slug"], ignore_errors=True)
     est[slug] = sorted(hechos)
-    ESTADO.write_text(json.dumps(est, indent=1, ensure_ascii=False), encoding="utf-8")
+    archivo.parent.mkdir(parents=True, exist_ok=True)
+    archivo.write_text(json.dumps(est, indent=1, ensure_ascii=False), encoding="utf-8")
     if notas:
         p = SALIDA / nombre / "Para publicar.txt"
         viejo = p.read_text(encoding="utf-8") if p.exists() else ""

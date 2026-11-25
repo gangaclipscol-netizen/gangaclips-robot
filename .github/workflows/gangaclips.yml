@@ -5,6 +5,7 @@
 # A mano: pestaña Actions → "GangaClips en la nube" → Run workflow.
 # Secretos del repo: GEMINI_API_KEY, GROQ_API_KEY, GANGACLIPS_TELEGRAM_TOKEN, GANGACLIPS_TELEGRAM_CHAT_ID, GANGACLIPS_META_JSON (nunca en el código).
 name: GangaClips en la nube
+run-name: "GangaClips: ${{ inputs.canal || 'todos' }}"
 
 on:
   workflow_dispatch:
@@ -13,7 +14,7 @@ on:
       n: { description: "clips por live (vacío = lo de gangaclips.json)", required: false, default: "" }
       vod: { description: "live (0 = el más reciente; vacío = solo los nuevos)", required: false, default: "" }
 
-concurrency: { group: gangaclips, cancel-in-progress: false }
+concurrency: { group: "gangaclips-${{ inputs.canal || 'todos' }}", cancel-in-progress: false }  # un robot por streamer a la vez; streamers distintos en paralelo
 permissions: { contents: write }
 
 jobs:
@@ -50,7 +51,7 @@ jobs:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}  # respaldo cuando Gemini se queda sin cupo
           PYTHONIOENCODING: utf-8
           ADFLOW_CANALES: gangaclips.json
-          ADFLOW_ESTADO: gangaclips-estado.json
+          ADFLOW_ESTADO_DIR: estado
           ADFLOW_BOT: gangaclips
           ADFLOW_IG: gangaclips.col
           ADFLOW_MAX_PUB: "6"
@@ -78,5 +79,8 @@ jobs:
           rm -f ~/.adflow-telegram-gangaclips.json ~/.adflow-meta.json
           git config user.name "GangaClips (nube)"
           git config user.email "actions@users.noreply.github.com"
-          git add clips/gangaclips-estado.json 2>/dev/null || true
-          git diff --cached --quiet || (git commit -m "GangaClips en la nube: lives hechos" && git pull --rebase -q && git push -q)
+          git add clips/estado/ 2>/dev/null || true
+          git diff --cached --quiet && exit 0
+          git commit -q -m "GangaClips (${{ inputs.canal || 'todos' }}): lives revisados"
+          # varios robots suben a la vez (cada uno su archivo): reintentar si otro subió primero
+          for i in 1 2 3 4 5; do git pull --rebase -q && git push -q && break; sleep $((RANDOM % 10 + 3)); done

@@ -1,6 +1,6 @@
 """Vigía de GangaClips: revisa en Kick si algún streamer de gangaclips.json terminó un live que aún no tiene clips.
-Es liviano (solo consulta la API de Kick, sin ffmpeg ni IA). Imprime los slugs de Kick con lives nuevos, uno por línea;
-el workflow vigia.yml arranca el robot completo (gangaclips.yml) si imprime algo.
+Es liviano (solo consulta la API de Kick, sin ffmpeg ni IA). Imprime los slugs de Kick con trabajo pendiente, uno por línea;
+el workflow vigia.yml arranca un robot (gangaclips.yml) por cada uno, en paralelo.
 """
 import datetime, json, sys, urllib.request
 from pathlib import Path
@@ -26,11 +26,11 @@ def reciente(v, horas=24):
 
 def main():
     canales = json.loads((AQUI / "gangaclips.json").read_text(encoding="utf-8"))
-    estado = AQUI / "gangaclips-estado.json"
-    est = json.loads(estado.read_text(encoding="utf-8")) if estado.exists() else {}
     for c in canales:
         slug = c.get("kick")
         if not slug: continue
+        estado = AQUI / "estado" / f"{slug}.json"  # un archivo por streamer (los robots corren en paralelo)
+        est = json.loads(estado.read_text(encoding="utf-8")) if estado.exists() else {}
         try:
             todos = lives(slug)
         except Exception as e:
