@@ -123,10 +123,13 @@ def labotella(n):
     camp = CAMPANAS["labotella"]
     with tempfile.TemporaryDirectory() as d:
         d = Path(d); fuente = d / "mv.mp4"
-        r = subprocess.run(["yt-dlp", "-q", "--no-warnings", "-f", "bv*[height<=720][ext=mp4]/b[height<=720]", "-o", str(fuente), camp["video"]],
-                           capture_output=True, text=True)
+        privado = os.environ.get("LABOTELLA_VIDEO")  # el video oficial guardado en el repo PRIVADO gangaclips-campanas
+        if privado and Path(privado).exists(): fuente = Path(privado); r = None
+        else:  # YouTube suele bloquear las descargas desde GitHub
+            r = subprocess.run(["yt-dlp", "-q", "--no-warnings", "-f", "bv*[height<=720][ext=mp4]/b[height<=720]", "-o", str(fuente), camp["video"]],
+                               capture_output=True, text=True)
         if not fuente.exists():
-            print("labotella: YouTube no dejó bajar el video oficial:", r.stderr[-300:], flush=True)
+            print("labotella: YouTube no dejó bajar el video oficial:", (r.stderr[-300:] if r else ""), flush=True)
             TG.texto("⚠️ GangaClips · Campaña La Botella: YouTube no dejó bajar el video oficial desde la nube. "
                      "Avísale a Claude para buscar otra forma.", bot=C.BOT)
             return []

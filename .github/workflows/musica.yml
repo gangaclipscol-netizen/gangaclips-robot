@@ -7,7 +7,7 @@ on:
     - cron: "7 18 * * *"
   workflow_dispatch:
     inputs:
-      campana: { description: "vicecity, labotella o todas", required: false, default: "todas" }
+      campana: { description: "vicecity o todas (La Botella va en el repo privado)", required: false, default: "todas" }
       n: { description: "clips por campaña", required: false, default: "2" }
 
 concurrency: { group: musica, cancel-in-progress: false }
@@ -37,7 +37,7 @@ jobs:
           CAMPANA: ${{ inputs.campana || 'todas' }}
           N: ${{ inputs.n || '2' }}
         run: |
-          for c in vicecity labotella; do
+          for c in vicecity; do  # La Botella corre en el repo PRIVADO gangaclips-campanas (video oficial con derechos)
             if [ "$CAMPANA" = "todas" ] || [ "$CAMPANA" = "$c" ]; then python musica.py "$c" --n "$N" || echo "falló $c"; fi
           done
       - name: Avisar por Telegram si algo falló
