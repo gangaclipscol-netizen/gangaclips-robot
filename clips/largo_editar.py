@@ -121,64 +121,87 @@ def cara_principal(img):
         print("  miniatura: sin detector de caras:", e, flush=True); return None
 
 
-def miniatura(principal, circulo, texto, dst):
-    """1280x720 al estilo de los canales grandes: fondo del mismo cuadro (más vivo y oscuro a la izquierda), la persona
-    recortada en grande con borde blanco a la derecha, 1-3 palabras gigantes con borde negro y un círculo con zoom."""
+def cara_del_banco(slug, emocion=None):
+    """Foto recortada del streamer del banco (clips/caras/<slug>/, la arma caras.py): la de la emoción pedida con mejor
+    nota, o la mejor de todas. None si todavía no hay banco."""
+    carpeta = C.AQUI / "caras" / slug
+    try:
+        indice = json.loads((carpeta / "indice.json").read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if not indice: return None
+    misma = [x for x in indice if emocion and x.get("emocion") == emocion]
+    import random
+    elegida = random.choice(sorted(misma or indice, key=lambda x: -x.get("nota", 0))[:3])  # varía entre las 3 mejores
+    return carpeta / elegida["archivo"]
+
+
+def miniatura(contexto, circulo, texto, dst, slug=None, emocion=None, principal=None):
+    """1280x720 al estilo de los canales grandes: de fondo el cuadro de la historia (vivo, oscurecido a la izquierda),
+    el streamer recortado y grande a la derecha (del BANCO de caras: siempre nítido y expresivo), 1-3 palabras gigantes
+    en Anton con borde y sombra, y un círculo con zoom a lo llamativo."""
     from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps
     Wm, Hm = 1280, 720
-    fondo = ImageOps.fit(Image.open(principal).convert("RGB"), (Wm, Hm))
-    fondo = ImageEnhance.Color(fondo).enhance(1.5)
-    fondo = ImageEnhance.Contrast(fondo).enhance(1.15).filter(ImageFilter.GaussianBlur(14))  # bien difuminado: no compite con la persona
+    fondo = ImageOps.fit(Image.open(contexto).convert("RGB"), (Wm, Hm), centering=(0.5, 0.4))
+    fondo = ImageEnhance.Color(fondo).enhance(1.45)
+    fondo = ImageEnhance.Contrast(fondo).enhance(1.2).filter(ImageFilter.GaussianBlur(5))
     sombra = Image.new("L", (Wm, Hm)); ds = ImageDraw.Draw(sombra)
-    for x in range(Wm): ds.line([(x, 0), (x, Hm)], fill=int(190 * max(0, 1 - x / (Wm * 0.75))))  # oscuro a la izquierda para el texto
+    for x in range(Wm): ds.line([(x, 0), (x, Hm)], fill=int(200 * max(0, 1 - x / (Wm * 0.7))))  # oscuro a la izquierda: ahí va el texto
     fondo = Image.composite(Image.new("RGB", (Wm, Hm), (0, 0, 0)), fondo, sombra)
     lienzo = fondo.convert("RGBA")
-    try:  # persona recortada (rembg); si no está, la miniatura sale sin recorte
-        from rembg import remove, new_session
-        foto = Image.open(principal).convert("RGB")
-        cara = cara_principal(principal)
-        if cara:  # solo la persona principal: recuadro alrededor de su cara (si no, rembg recorta a todo el grupo en chiquito)
-            x, y, w, h = cara
-            ancho = w * 4.2
-            foto = foto.crop((max(0, int(x + w / 2 - ancho / 2)), max(0, int(y - h * 0.9)),
-                              min(foto.width, int(x + w / 2 + ancho / 2)), foto.height))
-        persona = remove(foto, session=new_session("u2net_human_seg"))
-        caja = persona.getbbox()
-        # solo si la persona sale grande en el cuadro original: agrandar mucho un recorte chico la deja borrosa
-        if caja and (caja[3] - caja[1]) >= 0.38 * Image.open(principal).height:
-            persona = persona.crop(caja)
-            escala = min(Hm * 1.0 / persona.height, 1.6)  # nunca más de 1,6x (se pixela)
-            persona = persona.resize((int(persona.width * escala), int(persona.height * escala)), Image.LANCZOS)
-            if persona.width > Wm * 0.62:
-                persona = persona.resize((int(Wm * 0.62), int(persona.height * Wm * 0.62 / persona.width)), Image.LANCZOS)
-            a = persona.split()[3]
-            borde = a.filter(ImageFilter.MaxFilter(15))
-            blanco = Image.new("RGBA", persona.size, (255, 255, 255, 255)); blanco.putalpha(borde)
-            x, y = Wm - persona.width + 20, max(0, Hm - persona.height + 10)
-            sombra_p = Image.new("RGBA", persona.size, (0, 0, 0, 160)); sombra_p.putalpha(borde.filter(ImageFilter.GaussianBlur(12)))
-            lienzo.alpha_composite(sombra_p, (x - 14, y + 10)); lienzo.alpha_composite(blanco, (x, y)); lienzo.alpha_composite(persona, (x, y))
-    except Exception as e:
-        print("  miniatura sin recorte:", e, flush=True)
+    # el streamer: del banco; si no hay banco, recortado del cuadro principal (solo si sale grande)
+    persona = None
+    banco = cara_del_banco(slug, emocion) if slug else None
+    if banco:
+        persona = Image.open(banco).convert("RGBA")
+    elif principal:
+        try:
+            from rembg import remove, new_session
+            p = remove(Image.open(principal).convert("RGB"), session=new_session("u2net_human_seg"))
+            caja = p.getbbox()
+            if caja and (caja[3] - caja[1]) >= 0.45 * p.height: persona = p.crop(caja)
+        except Exception as e:
+            print("  miniatura sin recorte:", e, flush=True)
+    if persona is not None:
+        alto = int(Hm * 1.02)
+        escala = min(alto / persona.height, 1.4)  # nunca agrandar de más (se pixela)
+        persona = persona.resize((int(persona.width * escala), int(persona.height * escala)), Image.LANCZOS)
+        if persona.width > Wm * 0.58:
+            persona = persona.resize((int(Wm * 0.58), int(persona.height * Wm * 0.58 / persona.width)), Image.LANCZOS)
+        persona = persona.filter(ImageFilter.UnsharpMask(radius=2, percent=80, threshold=2))
+        a = persona.split()[3]
+        borde = a.filter(ImageFilter.MaxFilter(17))
+        blanco = Image.new("RGBA", persona.size, (255, 255, 255, 255)); blanco.putalpha(borde)
+        brillo = Image.new("RGBA", persona.size, (255, 230, 0, 150)); brillo.putalpha(borde.filter(ImageFilter.GaussianBlur(18)))
+        x, y = Wm - persona.width + 10, max(0, Hm - persona.height)
+        lienzo.alpha_composite(brillo, (x, y)); lienzo.alpha_composite(blanco, (x, y)); lienzo.alpha_composite(persona, (x, y))
+    # texto gigante (Anton), la última línea en amarillo, borde negro grueso y sombra
     d = ImageDraw.Draw(lienzo)
+    fuente = str(C.AQUI / "fuentes" / "Anton-Regular.ttf")
     palabras = (texto or "").upper().split()
     lineas = [" ".join(palabras[i:i + 2]) for i in range(0, len(palabras), 2)] or ["¿QUÉ PASÓ?"]
-    tam = 190
-    while tam > 70:
-        f = ImageFont.truetype(FUENTE, tam)
-        if all(d.textlength(l, font=f) <= Wm * 0.58 for l in lineas) and tam * 1.05 * len(lineas) <= Hm * 0.7: break
+    tam = 230
+    while tam > 80:
+        f = ImageFont.truetype(fuente, tam)
+        if all(d.textlength(l, font=f) <= Wm * 0.56 for l in lineas) and tam * 1.0 * len(lineas) <= Hm * 0.72: break
         tam -= 8
-    y = Hm - 60 - int(tam * 1.05) * len(lineas)
-    for k, l in enumerate(lineas):  # la última palabra en amarillo, como en los canales grandes
-        color = (255, 230, 0) if k == len(lineas) - 1 else (255, 255, 255)
-        d.text((48, y), l, font=f, fill=color, stroke_width=max(8, tam // 14), stroke_fill=(0, 0, 0))
-        y += int(tam * 1.05)
-    if circulo and circulo != principal:  # círculo con zoom a lo llamativo, borde rojo
-        r = 150
+    y = Hm - 50 - int(tam * 1.0) * len(lineas)
+    for k, l in enumerate(lineas):
+        color = (255, 222, 0) if k == len(lineas) - 1 else (255, 255, 255)
+        sombra_t = Image.new("RGBA", (Wm, Hm)); ImageDraw.Draw(sombra_t).text((52, y + 10), l, font=f, fill=(0, 0, 0, 200),
+                                                                                 stroke_width=tam // 10, stroke_fill=(0, 0, 0, 200))
+        lienzo.alpha_composite(sombra_t.filter(ImageFilter.GaussianBlur(8)))
+        ImageDraw.Draw(lienzo).text((44, y), l, font=f, fill=color, stroke_width=max(8, tam // 13), stroke_fill=(0, 0, 0))
+        y += int(tam * 1.0)
+    if circulo and circulo != contexto:  # círculo con zoom a lo llamativo, aro rojo
+        r = 140
         c = ImageOps.fit(Image.open(circulo).convert("RGB"), (2 * r, 2 * r))
+        c = ImageEnhance.Color(c).enhance(1.3).filter(ImageFilter.UnsharpMask(2, 80, 2))
         m = Image.new("L", (2 * r, 2 * r)); ImageDraw.Draw(m).ellipse((0, 0, 2 * r - 1, 2 * r - 1), fill=255)
         aro = Image.new("RGBA", (2 * r + 20, 2 * r + 20)); ImageDraw.Draw(aro).ellipse((0, 0, 2 * r + 19, 2 * r + 19), fill=(230, 20, 20, 255))
         lienzo.alpha_composite(aro, (40, 30)); c.putalpha(m); lienzo.alpha_composite(c.convert("RGBA"), (50, 40))
-    lienzo.convert("RGB").save(dst, "JPEG", quality=92)
+    final = lienzo.convert("RGB").filter(ImageFilter.UnsharpMask(radius=1.5, percent=60, threshold=2))
+    final.save(dst, "JPEG", quality=94)
 
 
 # ---------- todo junto ----------
@@ -214,7 +237,16 @@ def hacer(nombre, slug, v, base, h, tramos, t, salida):
                                          encoding="utf-8")
     cand = cuadros_candidatos(stream, h, tramos, t)
     principal, circulo = (escoger_cuadros(cand, h) + [None, None])[:2]
-    if principal: miniatura(principal, circulo, h.get("texto_miniatura", ""), carpeta / "miniatura.jpg")
+    if principal:  # fondo = el cuadro más nítido de la historia; el streamer sale del banco de caras (caras.py)
+        def nit(f):
+            try:
+                import cv2
+                return cv2.Laplacian(cv2.cvtColor(cv2.imread(str(f)), cv2.COLOR_BGR2GRAY), cv2.CV_64F).var()
+            except Exception:
+                return 0
+        fondo = max(cand, key=nit)
+        miniatura(fondo, circulo if circulo != fondo else principal, h.get("texto_miniatura", ""), carpeta / "miniatura.jpg",
+                  slug=slug, emocion=h.get("emocion_miniatura"), principal=principal)
     print(f"  ✓ video {duracion(video) / 60:.1f} min · {carpeta}", flush=True)
     entregar(nombre, h, carpeta, texto)
     return carpeta

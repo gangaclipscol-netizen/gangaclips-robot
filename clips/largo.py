@@ -58,6 +58,7 @@ tú escoges las PARTES que se conservan, en orden, y todo lo demás se corta. Pa
 - "capitulos": lista de {{"inicio": segundo del live, "titulo": "corto"}} (4 a 8, el primero en el inicio)
 - "titulo" (máx 95 caracteres, estilo de los ejemplos, en {tono}, sin groserías), "texto_miniatura" (1 a 3 palabras, MAYÚSCULAS,
   CONCRETAS sobre lo que pasa: "EN EL CAPITOLIO", "EL TRONO", "NOS ASUSTÓ", "GANA LA PELEA"; nada genérico como "¡SORPRESA!" o "INCREÍBLE"),
+  "emocion_miniatura" (la cara que va en la miniatura: risa, sorpresa, serio, enojo o feliz),
   "descripcion" (3-4 líneas que enganchen, sin groserías), "tags" (8 a 12), "puntaje" (1-10, sé exigente), "por_que".
 Responde SOLO un JSON: lista de esos objetos, de mejor a peor.
 
