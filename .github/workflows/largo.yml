@@ -1,0 +1,60 @@
+# Video LARGO para YouTube (GangaClips): de un stream terminado saca 1 o 2 historias completas (15-40 min) bien editadas,
+# con adelanto, capítulos y miniatura. El video queda como descarga en el release "largos" y el aviso llega a Telegram.
+# A mano: Actions → "GangaClips: video largo" → Run workflow (canal de Kick y qué live: 0 = el último).
+name: "GangaClips: video largo"
+run-name: "Video largo: ${{ inputs.canal }} (live ${{ inputs.vod }})"
+
+on:
+  workflow_dispatch:
+    inputs:
+      canal: { description: "slug de Kick (westcol, chanty...)", required: true, default: "westcol" }
+      vod: { description: "qué live (0 = el último terminado)", required: false, default: "0" }
+
+concurrency: { group: "largo-${{ inputs.canal }}", cancel-in-progress: false }
+permissions: { contents: write }
+
+jobs:
+  largo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.13" }
+      - name: Programas (ffmpeg, fuente Arial Black, recorte de personas)
+        run: |
+          echo "ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true" | sudo debconf-set-selections
+          for i in 1 2 3 4; do
+            sudo apt-get update -qq && sudo apt-get install -y -qq --fix-missing ffmpeg ttf-mscorefonts-installer fontconfig > /dev/null && break
+            echo "apt falló (intento $i), reintento en 60 s"; sleep 60
+          done
+          sudo fc-cache -f > /dev/null
+          pip install -q pillow requests faster-whisper "rembg[cpu]"
+      - name: Llave del bot (desde los secretos)
+        env:
+          TOKEN: ${{ secrets.GANGACLIPS_TELEGRAM_TOKEN }}
+          CHAT: ${{ secrets.GANGACLIPS_TELEGRAM_CHAT_ID }}
+        run: python -c "import json,os,pathlib; pathlib.Path.home().joinpath('.adflow-telegram-gangaclips.json').write_text(json.dumps({'token':os.environ['TOKEN'],'chat_id':int(os.environ['CHAT'])}))"
+      - name: Hacer el video largo
+        working-directory: clips
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          PYTHONIOENCODING: utf-8
+          ADFLOW_BOT: gangaclips
+          ADFLOW_SALIDA: ${{ runner.temp }}/largos
+          ADFLOW_TMP: ${{ runner.temp }}/largos-tmp
+          ADFLOW_FUENTE: /usr/share/fonts/truetype/msttcorefonts/Arial_Black.ttf
+        run: python largo.py --canal "${{ inputs.canal }}" --vod "${{ inputs.vod }}"
+      - name: Avisar por Telegram si algo falló
+        if: failure()
+        env:
+          TOKEN: ${{ secrets.GANGACLIPS_TELEGRAM_TOKEN }}
+          CHAT: ${{ secrets.GANGACLIPS_TELEGRAM_CHAT_ID }}
+        run: |
+          curl -s -o /dev/null "https://api.telegram.org/bot$TOKEN/sendMessage" --data-urlencode "chat_id=$CHAT" \
+            --data-urlencode "text=⚠️ GangaClips: el video largo de ${{ inputs.canal }} FALLÓ. Detalle: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+      - name: Limpiar llaves
+        if: always()
+        run: rm -f ~/.adflow-telegram-gangaclips.json

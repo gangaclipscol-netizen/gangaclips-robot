@@ -1,0 +1,60 @@
+[
+  {
+    "inicio": 947,
+    "fin": 8654,
+    "muertos": [
+      [1189, 1245],
+      [1382, 1432],
+      [2400, 2465],
+      [2848, 2925],
+      [3123, 3192],
+      [4650, 4740],
+      [6100, 6165],
+      [8180, 8350]
+    ],
+    "adelanto": [959, 975],
+    "capitulos": [
+      {
+        "inicio": 947,
+        "titulo": "Llegada al Capitolio"
+      },
+      {
+        "inicio": 1246,
+        "titulo": "Entrevista con el Procurador"
+      },
+      {
+        "inicio": 2466,
+        "titulo": "Recorrido por los salones históricos"
+      },
+      {
+        "inicio": 4880,
+        "titulo": "Debate caliente con los senadores"
+      },
+      {
+        "inicio": 6667,
+        "titulo": "Discusión sobre la paz y seguridad"
+      },
+      {
+        "inicio": 8351,
+        "titulo": "Cierre y reflexiones finales"
+      }
+    ],
+    "titulo": "WESTCOL ENTRA AL CAPITOLIO NACIONAL Y SE ENFRENTA A LOS SENADORES 😱",
+    "texto_miniatura": "EN EL CAPITOLIO",
+    "descripcion": "Westcol visita el Capitolio Nacional en Bogotá, se sienta en el trono presidencial y discute de frente con varios senadores sobre política, seguridad y la realidad del país.",
+    "tags": [
+      "westcol",
+      "capitolio nacional",
+      "westcol politica",
+      "senadores colombia",
+      "debate westcol",
+      "congreso de la republica",
+      "jp hernandez westcol",
+      "colombia",
+      "stream westcol",
+      "entrevista politica"
+    ],
+    "puntaje": 10,
+    "por_que": "Es un contenido totalmente único e histórico para un streamer: Westcol recorriendo el Capitolio Nacional de Colombia, interactuando directamente con senadores y el procurador, debatiendo de forma genuina sobre la realidad del país, con momentos de alta tensión dialéctica y el chat completamente revolucionado."
+  }
+]
