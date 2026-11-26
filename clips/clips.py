@@ -38,10 +38,10 @@ ESTADO_DIR = Path(os.environ["ADFLOW_ESTADO_DIR"]) if os.environ.get("ADFLOW_EST
 BOT = os.environ.get("ADFLOW_BOT", "clips")
 IG = os.environ.get("ADFLOW_IG")  # usuario de Instagram (de ~/.adflow-meta.json) donde publicar solo los clips de Kick
 MAX_PUB = int(os.environ.get("ADFLOW_MAX_PUB", "10"))  # tope de publicaciones por corrida (no llenar la cuenta de golpe)
-MAX_DIA = int(os.environ.get("ADFLOW_MAX_DIA", "40"))  # tope diario en IG/FB (Instagram permite 50; el jurado ya deja pocos)
+MAX_DIA = int(os.environ.get("ADFLOW_MAX_DIA", "90"))  # tope diario en IG/FB (Instagram permite 100 en 24 h; el jurado ya deja pocos)
 ESPACIO_MIN = int(os.environ.get("ADFLOW_ESPACIO_MIN", "0"))  # minutos mínimos entre una publicación y la siguiente
-MIN_PUNTAJE = int(os.environ.get("ADFLOW_MIN_PUNTAJE", "8"))  # solo se hacen los clips que el jurado califica 8+ (pocos y buenos)
-TIKTOK_MIN = int(os.environ.get("ADFLOW_TIKTOK_MIN", "8"))  # puntaje mínimo (1-10) para mandar el clip a los borradores de TikTok
+MIN_PUNTAJE = int(os.environ.get("ADFLOW_MIN_PUNTAJE", "9"))  # solo se hacen los clips que el jurado califica 9-10 (solo los mejores)
+TIKTOK_MIN = int(os.environ.get("ADFLOW_TIKTOK_MIN", "9"))  # puntaje mínimo (1-10) para mandar el clip a los borradores de TikTok
 PUBLICADOS = [0]
 FIJO = [False]  # --n a mano: sacar exactamente esa cantidad
 UA = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
@@ -180,7 +180,7 @@ CRITERIO_VIRAL = """CÓMO SE CALIFICA (sé MUY exigente: la mayoría de momentos
 - RETENCIÓN: sin partes muertas; 20 a 45 segundos es lo ideal (más largo solo si la historia lo vale).
 - REPETIBLE/COMPARTIBLE: dan ganas de verlo otra vez o mandárselo a alguien.
 - El chat del stream es la mejor prueba: si explotó (muchos mensajes, risas KEKW/jaja, OOOO/NOOO), el momento pegó.
-Puntaje 1-10: 9-10 = la gente lo compartiría; 8 = muy bueno; 7 o menos = NO sirve, no lo propongas."""
+Puntaje 1-10: 10 = se vuelve viral; 9 = la gente lo compartiría; 8 o menos = NO sirve (solo se publican 9 y 10)."""
 
 
 def chat_picos(slug, v, desde, hasta, paso=20):
@@ -227,7 +227,7 @@ automática (puede tener errores) del live "{titulo_live}" de {nombre}. Cada lí
 
 {CRITERIO_VIRAL}
 
-Escoge HASTA {n} momentos, SOLO los que saquen 8 o más (si solo hay 1 o ninguno, devuelve eso; mejor pocos que relleno):
+Escoge HASTA {n} momentos, SOLO los que saquen 9 o 10 (si solo hay 1 o ninguno, devuelve eso; mejor pocos que relleno):
 - Que se entiendan solos, sin contexto (historia completa, chiste con remate, reacción fuerte, polémica, consejo, momento épico o emotivo).
 - Duración entre 20 y 60 segundos. "inicio" = el segundo donde EMPIEZA ese tema (no antes): lo prometido en el título
   tiene que oírse en los primeros segundos. "fin" = justo después del remate o cierre.
@@ -315,7 +315,7 @@ Decide el mejor clip DENTRO de este pedazo:
    o retos peligrosos, DESCÁRTALO aunque sea gracioso.
 Si el tema prometido no está aquí, no sale un buen clip o rompe una norma, responde {{"descartar": true, "motivo": "..."}}.
 
-7. JURADO: califica el clip FINAL (con estos cortes) con este criterio y pon "puntaje". Si saca menos de 8, descártalo.
+7. JURADO: califica el clip FINAL (con estos cortes) con este criterio y pon "puntaje". Si saca menos de 9, descártalo.
 """ + CRITERIO_VIRAL + f"""
 
 Responde SOLO un JSON: {{"inicio": n, "fin": n, "titulo": "...", "gancho": "...", "puntaje": n, "descartar": false}}
@@ -914,7 +914,6 @@ def procesar(canal, n, vod_idx=None):
                 seguro, motivo = moderar(f, c)  # normas de TikTok/IG: lo que se VE (logos de casino, alcohol, armas...)
                 if not seguro:
                     print("  ⛔ no se publica:", motivo, flush=True)
-                    TG.enviar(f, f"⛔ NO PUBLICAR · {nombre}\nPosible infracción de las normas: {motivo}\n\n{c['titulo']}", bot=BOT)
                     continue
                 puntaje = int(c.get("puntaje") or 0)
                 hechas = {}
@@ -926,9 +925,9 @@ def procesar(canal, n, vod_idx=None):
                 borrador = puntaje >= TIKTOK_MIN and tiktok_borrador(f)
                 redes ="\n".join(f"✅ {k}: {u}" if u else f"⚠️ {k}: NO se publicó (súbelo tú)" for k, u in hechas.items())
                 if borrador: redes = (redes + "\n" if redes else "") + "📥 TikTok: en tus borradores (toca el mensaje de abajo para copiar el texto)"
-                pendientes = ("" if borrador else "TikTok, ") + "YouTube" + ("" if hechas else ", Instagram, Facebook")
-                estrella = "⭐ RECOMENDADO PARA TIKTOK · " if puntaje >= TIKTOK_MIN else ""
-                TG.enviar(f, f"{estrella}✂️ {nombre}{' 🔴 EN VIVO' if en_vivo else ''} · puntaje {puntaje}/10\n\n{texto}\n\n{redes + chr(10) if redes else ''}⚠️ Publicar a mano: {pendientes}", bot=BOT)
+                faltan = [r for r, ok in (("TikTok", borrador), ("Instagram", hechas.get("Instagram")), ("Facebook", hechas.get("Facebook"))) if not ok]
+                aviso = f"⚠️ Publicar a mano: {', '.join(faltan)}" if faltan else "✅ Publicado en IG y FB · TikTok: dale Publicar en tus borradores"
+                TG.enviar(f, f"⭐ {nombre}{' 🔴 EN VIVO' if en_vivo else ''} · puntaje {puntaje}/10\n\n{texto}\n\n{redes + chr(10) if redes else ''}{aviso}", bot=BOT)
                 TG.copiable(texto, bot=BOT)  # un toque en Telegram = texto copiado para pegarlo en TikTok
                 notas.append(f"{f.name}\n{c['titulo']} {' '.join(c.get('hashtags', []))}\n"
                              f"Crédito: {nombre} en vivo en kick.com/{slug}\n")
