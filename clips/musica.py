@@ -42,6 +42,26 @@ CAMPANAS = {
 }
 
 
+def frases_nuevas(clave, n):
+    """Frases DISTINTAS para el texto de arriba, escritas por la IA cada vez (con la lista del brief como ejemplo), para que
+    no se repitan entre clips ni entre días. Si la IA no responde, toma de la lista sin repetir."""
+    camp = CAMPANAS[clave]
+    import datetime
+    prompt = f"""Escribe {n + 3} textos DISTINTOS para poner arriba de un video vertical de TikTok de la campaña "{camp['nombre']}".
+Estilo de estos ejemplos (no los copies, inventa nuevos): {json.dumps(camp['textos'], ensure_ascii=False)}
+Reglas: máx. 12 palabras, en MAYÚSCULAS, español latino natural, que den ganas de quedarse a ver, sin groserías,
+sin hablar de alcohol, drogas ni apuestas, sin inventar datos. Varía el ángulo entre ellos (POV, nostalgia, humor, reto,
+pregunta). Hoy es {datetime.date.today()} (sé original). Responde SOLO un JSON: lista de textos."""
+    try:
+        r = json.loads(__import__("re").search(r"\[.*\]", C.ia(prompt), __import__("re").S).group(0))
+        r = [x.strip().upper() for x in r if isinstance(x, str) and 3 <= len(x.split()) <= 14]
+        random.shuffle(r)
+        if len(r) >= n: return r[:n]
+    except Exception as e:
+        print("  frases: la IA no respondió, uso la lista:", e, flush=True)
+    return random.sample(camp["textos"], min(n, len(camp["textos"])))
+
+
 def placa(texto, dst, y_video, h_video):
     """Texto grande arriba del video (Anton, blanco con borde negro), sin logos ni marcas de agua."""
     from PIL import Image, ImageDraw, ImageFont
@@ -108,13 +128,15 @@ def vicecity(n):
     tramos.sort(reverse=True)
     print(f"vicecity: {len(tramos)} momentos de acción candidatos", flush=True)
     random.shuffle(tramos[:40])
+    frases = frases_nuevas("vicecity", n)
     for i in range(n):
         lote = tramos[i * 6:(i + 1) * 6]  # 6 momentos x 5 s = ~30 s
         if len(lote) < 4: break
         with tempfile.TemporaryDirectory() as d:
             d = Path(d); dst = d / f"vicecity-{i}.mp4"
-            if armar([(src, a, 5.0) for _, src, a in lote], random.choice(camp["textos"]), dst, d):
-                entregar("vicecity", dst, random.choice(camp["textos"]).capitalize()); hechos.append(dst)
+            texto = frases.pop() if frases else random.choice(camp["textos"])
+            if armar([(src, a, 5.0) for _, src, a in lote], texto, dst, d):
+                entregar("vicecity", dst, texto.capitalize()); hechos.append(dst)
     return hechos
 
 
@@ -135,7 +157,7 @@ def labotella(n):
             return []
         dur = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(fuente)],
                                    capture_output=True, text=True).stdout.strip() or 170)
-        textos = random.sample(camp["textos"], min(n, len(camp["textos"])))
+        textos = frases_nuevas("labotella", n)
         for i, texto in enumerate(textos):
             # 3 escenas distintas del video de ~9 s cada una (~27 s), en orden, para que suene más canción
             inicios = sorted(random.sample(range(8, max(9, int(dur) - 12), 3), 3))
