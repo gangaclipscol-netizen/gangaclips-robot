@@ -25,11 +25,17 @@ jobs:
         run: |
           for i in 1 2 3 4; do sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg > /dev/null && break; sleep 60; done
           pip install -q pillow requests faster-whisper "rembg[cpu]" opencv-python-headless
+      - name: Llave del bot (desde los secretos)
+        env:
+          TOKEN: ${{ secrets.GANGACLIPS_TELEGRAM_TOKEN }}
+          CHAT: ${{ secrets.GANGACLIPS_TELEGRAM_CHAT_ID }}
+        run: python -c "import json,os,pathlib; pathlib.Path.home().joinpath('.adflow-telegram-gangaclips.json').write_text(json.dumps({'token':os.environ['TOKEN'],'chat_id':int(os.environ['CHAT'])}))"
       - name: Armar el banco
         working-directory: clips
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           PYTHONIOENCODING: utf-8
+          ADFLOW_BOT: gangaclips
         run: python caras.py --canal "${{ inputs.canal }}" --lives "${{ inputs.lives }}"
       - name: Guardar el banco en el repo
         run: |

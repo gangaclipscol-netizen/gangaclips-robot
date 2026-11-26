@@ -127,6 +127,33 @@ def main():
             if recortar(f, caja, dst): indice.append({"archivo": dst.name, "emocion": emo, "nota": nota})
         (destino / "indice.json").write_text(json.dumps(indice, ensure_ascii=False, indent=1), encoding="utf-8")
         print(f"banco de {nombre}: {len(indice)} caras → {destino}", flush=True)
+        mandar_muestra(nombre, destino, indice)
+
+
+def mandar_muestra(nombre, destino, indice):
+    """Mosaico de las caras guardadas a Telegram, para revisarlas desde el celular."""
+    import requests
+    from PIL import Image, ImageDraw
+    import telegram_envio as TG
+    cfg = TG._cfg(C.BOT)
+    if not (cfg and cfg.get("token") and cfg.get("chat_id")): return
+    if not indice:
+        TG.texto(f"🖼️ Banco de caras de {nombre}: no encontré cuadros buenos (cara grande, nítida y expresiva). "
+                 "Se puede repetir con más lives.", bot=C.BOT); return
+    lado = 300; cols = min(4, len(indice)); filas = (len(indice) + cols - 1) // cols
+    lienzo = Image.new("RGB", (cols * lado, filas * lado), (30, 30, 36)); d = ImageDraw.Draw(lienzo)
+    for k, x in enumerate(indice):
+        im = Image.open(destino / x["archivo"]).convert("RGBA"); im.thumbnail((lado - 10, lado - 30))
+        cx, cy = (k % cols) * lado, (k // cols) * lado
+        lienzo.paste(im, (cx + (lado - im.width) // 2, cy + 5), im)
+        d.text((cx + 8, cy + lado - 22), f"{x['emocion']} · {x['nota']}/10", fill=(83, 252, 24))
+    tmp = destino / "_muestra.jpg"; lienzo.save(tmp, "JPEG", quality=85)
+    with open(tmp, "rb") as f:
+        requests.post(f"https://api.telegram.org/bot{cfg['token']}/sendPhoto",
+                      data={"chat_id": cfg["chat_id"], "caption": f"🖼️ Banco de caras de {nombre}: {len(indice)} fotos para las miniaturas "
+                                                                     "de los videos largos. Si alguna no te gusta, dime cuál y la quito."},
+                      files={"photo": f}, timeout=60)
+    tmp.unlink()
 
 
 if __name__ == "__main__":
