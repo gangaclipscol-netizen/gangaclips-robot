@@ -74,9 +74,9 @@ def escoger_cuadros(cuadros, h):
     key = os.environ.get("GEMINI_API_KEY")
     if not key or not cuadros: return cuadros[:2]
     partes = [{"text": f"Cuadros numerados 0 a {len(cuadros) - 1} de un video de YouTube titulado \"{h['titulo']}\".\n"
-                       "Para la MINIATURA, escoge: \"principal\" = el cuadro donde el STREAMER sale de cuerpo o medio cuerpo, GRANDE, "
-                       "NÍTIDO (sin movimiento) y con la expresión más exagerada (sorpresa, risa, grito); nada de caras chiquitas, "
-                       "borrosas o cortadas; \"circulo\" = otro cuadro que muestre lo más llamativo de "
+                       "Para la MINIATURA, escoge: \"principal\" = el cuadro MÁS LLAMATIVO de la historia para que alguien haga clic: "
+                       "NÍTIDO (sin movimiento), bien iluminado y con algo pasando (la cara del streamer con buena expresión, una "
+                       "escena de acción, el lugar, el invitado); nada borroso, oscuro o aburrido; \"circulo\" = otro cuadro con lo más llamativo de "
                        "la historia (el lugar, el invitado, el objeto). Nada de logos de casino, alcohol ni armas.\n"
                        "\"lado\" = dónde está el streamer en el cuadro principal (izquierda, centro o derecha).\n"
                        "Responde SOLO un JSON: {\"principal\": n, \"circulo\": n, \"lado\": \"...\"}"}]
@@ -144,9 +144,9 @@ def miniatura(contexto, circulo, texto, dst, slug=None, emocion=None, principal=
     Wm, Hm = 1280, 720
     fondo = ImageOps.fit(Image.open(contexto).convert("RGB"), (Wm, Hm), centering=(0.5, 0.4))
     fondo = ImageEnhance.Color(fondo).enhance(1.45)
-    fondo = ImageEnhance.Contrast(fondo).enhance(1.2).filter(ImageFilter.GaussianBlur(5))
+    fondo = ImageEnhance.Contrast(fondo).enhance(1.2).filter(ImageFilter.UnsharpMask(radius=2, percent=90, threshold=2))  # la escena se ve NÍTIDA
     sombra = Image.new("L", (Wm, Hm)); ds = ImageDraw.Draw(sombra)
-    for x in range(Wm): ds.line([(x, 0), (x, Hm)], fill=int(200 * max(0, 1 - x / (Wm * 0.7))))  # oscuro a la izquierda: ahí va el texto
+    for x in range(Wm): ds.line([(x, 0), (x, Hm)], fill=int(170 * max(0, 1 - x / (Wm * 0.6))))  # oscuro a la izquierda: ahí va el texto
     fondo = Image.composite(Image.new("RGB", (Wm, Hm), (0, 0, 0)), fondo, sombra)
     lienzo = fondo.convert("RGBA")
     # el streamer: del banco; si no hay banco, recortado del cuadro principal (solo si sale grande)
@@ -237,16 +237,8 @@ def hacer(nombre, slug, v, base, h, tramos, t, salida):
                                          encoding="utf-8")
     cand = cuadros_candidatos(stream, h, tramos, t)
     principal, circulo = (escoger_cuadros(cand, h) + [None, None])[:2]
-    if principal:  # fondo = el cuadro más nítido de la historia; el streamer sale del banco de caras (caras.py)
-        def nit(f):
-            try:
-                import cv2
-                return cv2.Laplacian(cv2.cvtColor(cv2.imread(str(f)), cv2.COLOR_BGR2GRAY), cv2.CV_64F).var()
-            except Exception:
-                return 0
-        fondo = max(cand, key=nit)
-        miniatura(fondo, circulo if circulo != fondo else principal, h.get("texto_miniatura", ""), carpeta / "miniatura.jpg",
-                  slug=slug, emocion=h.get("emocion_miniatura"), principal=principal)
+    if principal:  # miniatura SENCILLA: la escena más llamativa y nítida (la escoge la IA) con color, nitidez y letras gigantes
+        miniatura(principal, None, h.get("texto_miniatura", ""), carpeta / "miniatura.jpg")
     print(f"  ✓ video {duracion(video) / 60:.1f} min · {carpeta}", flush=True)
     entregar(nombre, h, carpeta, texto)
     return carpeta

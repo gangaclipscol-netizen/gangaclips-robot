@@ -1,10 +1,8 @@
 # Clips para campañas de MÚSICA de Quanty (clips/musica.py): Vice City (montajes de GTA VI) y La Botella (video oficial
-# con frases POV). Todos los días a la 1 p. m. de Colombia; a mano: Actions → Run workflow.
+# con frases POV). Solo a mano (los edits diarios de Vice City y La Botella corren en el repo privado gangaclips-campanas).
 name: "GangaClips: campañas de música"
 
 on:
-  schedule:
-    - cron: "7 18 * * *"
   workflow_dispatch:
     inputs:
       campana: { description: "vicecity o todas (La Botella va en el repo privado)", required: false, default: "todas" }

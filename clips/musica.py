@@ -143,6 +143,58 @@ def vicecity(n):
     return hechos
 
 
+def planos(video, minimo=1.0, umbral=0.32):
+    """Cortes de escena del video (ffmpeg scene detection) → lista de (inicio, fin) de planos de `minimo` s o más,
+    sin los primeros 3 s ni los últimos 8 (logos y títulos)."""
+    r = subprocess.run(["ffmpeg", "-i", str(video), "-vf", f"select='gt(scene,{umbral})',showinfo", "-an", "-f", "null", "-"],
+                       capture_output=True, text=True)
+    import re
+    cortes = [float(x) for x in re.findall(r"pts_time:([\d.]+)", r.stderr)]
+    dur = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(video)],
+                               capture_output=True, text=True).stdout.strip() or 0)
+    bordes = [0.0] + cortes + [dur]
+    return [(a, b) for a, b in zip(bordes, bordes[1:]) if b - a >= minimo and a >= 3 and b <= dur - 8]
+
+
+def vicecity_edit(n, carpeta):
+    """Edits de GTA VI con los tráileres oficiales (repo privado): ~16 planos de 1,2-1,6 s en vertical, con zoom lento,
+    color más vivo y destello blanco entre cortes, frase nueva arriba y SIN audio (la canción va desde TikTok)."""
+    camp = CAMPANAS["vicecity"]
+    videos = sorted(Path(carpeta).glob("gta6-*.mp4"))
+    todos = [(v, a, b) for v in videos for a, b in planos(v)]
+    print(f"vicecity_edit: {len(todos)} planos en {len(videos)} tráileres", flush=True)
+    if len(todos) < 16: return []
+    frases = frases_nuevas("vicecity", n)
+    for i in range(n):
+        elegidos = random.sample(todos, 16)
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d); piezas = []
+            for k, (v, a, b) in enumerate(elegidos):
+                dur = round(random.uniform(1.2, 1.6), 2)
+                ini = a + max(0, (b - a - dur) / 2)
+                p = d / f"p{k:02d}.mp4"
+                # recorte 4:5 al centro (más grande que 16:9 sin pixelarse tanto) sobre el mismo plano difuminado
+                fc = (f"[0:v]split=2[a][b];[a]scale=-2:{H},crop={W}:{H},boxblur=30:2,eq=brightness=-0.2,setsar=1[bg];"
+                      f"[b]crop=ih*4/5:ih,scale=1080:1350,zoompan=z='1+0.0016*on':d=1:s=1080x1350:fps=30,"
+                      f"eq=saturation=1.3:contrast=1.08,unsharp=5:5:0.6,setsar=1[m];"
+                      f"[bg][m]overlay=0:{(H - 1350) // 2},fade=t=in:st=0:d=0.12:color=white,format=yuv420p[v]")
+                r = subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", f"{ini:.2f}", "-i", str(v), "-t", str(dur), "-filter_complex", fc,
+                                    "-map", "[v]", "-an", "-r", "30", "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", str(p)],
+                                   capture_output=True, text=True)
+                if r.returncode == 0: piezas.append(p)
+            if len(piezas) < 10: continue
+            (d / "lista.txt").write_text("".join(f"file '{p.name}'\n" for p in piezas))
+            subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", "lista.txt", "-c", "copy", "junto.mp4"], cwd=d)
+            texto = frases.pop() if frases else random.choice(camp["textos"])
+            placa(texto, d / "placa.png", (H - 1350) // 2, 1350)
+            dst = d / f"vicecity-edit-{i}.mp4"
+            subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", "junto.mp4", "-i", "placa.png", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
+                            "-filter_complex", "[0:v][1:v]overlay=0:0,format=yuv420p[v]", "-map", "[v]", "-map", "2:a", "-shortest",
+                            "-c:v", "libx264", "-preset", "medium", "-crf", "19", "-c:a", "aac", "-movflags", "+faststart", dst.name], cwd=d)
+            if dst.exists(): entregar("vicecity", dst, texto.capitalize())
+    return True
+
+
 def labotella(n):
     """Escenas del video musical oficial con frases POV del brief."""
     camp = CAMPANAS["labotella"]
@@ -184,7 +236,9 @@ def entregar(clave, f, descripcion):
 
 if __name__ == "__main__":
     import datetime
-    ap = argparse.ArgumentParser(); ap.add_argument("campana", choices=list(CAMPANAS)); ap.add_argument("--n", type=int, default=2)
+    ap = argparse.ArgumentParser(); ap.add_argument("campana", choices=list(CAMPANAS) + ["vicecityedit"]); ap.add_argument("--n", type=int, default=2)
     a = ap.parse_args()
-    if datetime.date.today().isoformat() > CAMPANAS[a.campana]["hasta"]: print("campaña vencida"); sys.exit(0)
-    (vicecity if a.campana == "vicecity" else labotella)(a.n)
+    clave = "vicecity" if a.campana == "vicecityedit" else a.campana
+    if datetime.date.today().isoformat() > CAMPANAS[clave]["hasta"]: print("campaña vencida"); sys.exit(0)
+    if a.campana == "vicecityedit": vicecity_edit(a.n, os.environ.get("VICECITY_DIR", "."))  # tráileres del repo privado
+    else: (vicecity if a.campana == "vicecity" else labotella)(a.n)
