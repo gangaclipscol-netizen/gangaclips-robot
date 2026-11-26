@@ -29,6 +29,8 @@ def main():
     for c in canales:
         slug = c.get("kick")
         if not slug: continue
+        hasta = (c.get("campana") or {}).get("hasta")
+        if hasta and datetime.date.today().isoformat() > hasta: continue  # campaña vencida: ya no paga
         estado = AQUI / "estado" / f"{slug}.json"  # un archivo por streamer (los robots corren en paralelo)
         est = json.loads(estado.read_text(encoding="utf-8")) if estado.exists() else {}
         try:

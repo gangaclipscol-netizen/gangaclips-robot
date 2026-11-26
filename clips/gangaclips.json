@@ -5,5 +5,7 @@
  {"nombre": "Samulx", "kick": "samulx", "clips_por_live": 3, "clips_por_hora": 4, "clips_max": 8},
  {"nombre": "Chanty", "kick": "chanty", "clips_por_live": 3, "clips_por_hora": 4, "clips_max": 8},
  {"nombre": "Willito", "kick": "willito", "clips_por_live": 3, "clips_por_hora": 4, "clips_max": 8},
- {"nombre": "Reydelacity", "kick": "reydelacity", "clips_por_live": 3, "clips_por_hora": 4, "clips_max": 8}
+ {"nombre": "Reydelacity", "kick": "reydelacity", "clips_por_live": 3, "clips_por_hora": 4, "clips_max": 8},
+ {"nombre": "ELW3RO", "kick": "elw3ro", "clips_por_live": 3, "clips_por_hora": 4, "clips_max": 8, "campana": {"nombre": "ELW3RO Clips (Quanty)", "codigo": "#qc2391x2611", "cuenta": "@clipscuanticos", "hashtags": ["#elw3ro"], "hasta": "2026-12-01"}},
+ {"nombre": "Saulsaso", "kick": "saulsaso", "clips_por_live": 3, "clips_por_hora": 4, "clips_max": 8, "campana": {"nombre": "Saulsaso (Quanty)", "codigo": "#qc2382x2611", "cuenta": "@clipscuanticos", "hashtags": ["#saulsaso97"], "logo": "logos/saulsaso.jpg", "hasta": "2026-12-28"}}
 ]

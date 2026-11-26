@@ -339,8 +339,19 @@ LO QUE SE DICE:
 
 
 # ---------- 3. cortar y editar ----------
+LOGO_CAMPANA = [None]  # logo que pide una campaña (ej. el de Kick de Saulsaso): va arriba a la derecha del video
+
+
 def overlay(gancho, credito, dst, y_video, h_video):
     im = Image.new("RGBA", (W, H), (0, 0, 0, 0)); d = ImageDraw.Draw(im)
+    if LOGO_CAMPANA[0] and Path(LOGO_CAMPANA[0]).exists():  # "ni tan chiquito ni tan grande": círculo de 150 px con borde
+        from PIL import ImageOps
+        lado = 150
+        lg = ImageOps.fit(Image.open(LOGO_CAMPANA[0]).convert("RGB"), (lado, lado))
+        m = Image.new("L", (lado, lado)); ImageDraw.Draw(m).ellipse((0, 0, lado - 1, lado - 1), fill=255)
+        aro = Image.new("RGBA", (lado + 12, lado + 12)); ImageDraw.Draw(aro).ellipse((0, 0, lado + 11, lado + 11), fill=(83, 252, 24, 255))
+        xl, yl = W - lado - 40, y_video + 20
+        im.alpha_composite(aro, (xl - 6, yl - 6)); lg.putalpha(m); im.alpha_composite(lg.convert("RGBA"), (xl, yl))
     f, ls = V.texto_ajustado(d, V.quitar_emoji(gancho).upper(), V.F_BLACK, W - 160, 66, 40)  # más chico: que no estorbe
     alto = len(ls) * int(f.size * 1.12)
     y = max(150, y_video - 40 - alto)
@@ -872,7 +883,9 @@ def procesar_youtube(canal, n, vod_idx=None):
 def procesar(canal, n, vod_idx=None):
     if "youtube" in canal: return procesar_youtube(canal, n, vod_idx)
     nombre, slug = canal["nombre"], canal["kick"]
-    archivo = (ESTADO_DIR / f"{slug}.json") if ESTADO_DIR else ESTADO
+    logo = (canal.get("campana") or {}).get("logo")
+    LOGO_CAMPANA[0] = str(AQUI / logo) if logo else None
+    archivo =(ESTADO_DIR / f"{slug}.json") if ESTADO_DIR else ESTADO
     est = json.loads(archivo.read_text(encoding="utf-8")) if archivo.exists() else {}
     hechos = set(est.get(slug, []))
     vivo = est.setdefault("en_vivo", {})  # {slug del live: último segundo ya revisado} → clips MIENTRAS sigue el live
@@ -934,6 +947,14 @@ def procesar(canal, n, vod_idx=None):
                     print("  ⛔ no se publica:", motivo, flush=True)
                     continue
                 puntaje = int(c.get("puntaje") or 0)
+                camp = canal.get("campana")
+                if camp:  # streamer de una campaña (Quanty): NO va a GangaClips; te llega listo para subir en la otra cuenta
+                    texto_c = (f"{c['titulo']}\n\n🎥 {nombre} en kick.com/{slug}\n\n{tags} {' '.join(camp.get('hashtags', []))} "
+                               f"{camp.get('codigo', '')}").strip()
+                    TG.enviar(f, f"💰 CAMPAÑA {camp.get('nombre', nombre)} · puntaje {puntaje}/10\n"
+                                 f"👉 Súbelo en TikTok desde {camp.get('cuenta', '')} (NO en gangaclips) y envíalo en Quanty en menos de 48 h\n\n{texto_c}", bot=BOT)
+                    TG.copiable(texto_c, bot=BOT)
+                    continue
                 hechas = {}
                 # publicar solo (IG + página de FB): pocos al día y espaciados; si no toca, te llega a Telegram para que decidas
                 if IG and PUBLICADOS[0] < MAX_PUB and cupo_ig_usado(IG) < MAX_DIA and minutos_desde_ultimo_ig(IG) >= ESPACIO_MIN:
