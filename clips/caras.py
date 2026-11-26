@@ -21,11 +21,23 @@ def candidatos(stream, dur, n, carpeta, prefijo):
     """n cuadros repartidos en el live; deja solo los que tienen una cara grande (>= 16% del alto) y nítida."""
     import cv2
     det = None; buenos = []
+    # Leer la lista de pedazos UNA vez y sacar cada cuadro de su pedazo (.ts): con un live de 72 h, abrir la lista
+    # entera para cada cuadro tardaba horas.
+    pl = urllib.request.urlopen(urllib.request.Request(stream, headers=C.UA), timeout=60).read().decode()
+    pedazos, acum, dur_p = [], 0.0, 0.0
+    for l in pl.splitlines():
+        if l.startswith("#EXTINF:"): dur_p = float(l.split(":")[1].split(",")[0])
+        elif l and not l.startswith("#"): pedazos.append((acum, dur_p, stream.rsplit("/", 1)[0] + "/" + l)); acum += dur_p
+    if not pedazos: return []
     for k in range(n):
-        t = dur * (k + 0.5) / n
+        t = acum * (k + 0.5) / n
+        ini, d, url = next((p for p in pedazos if p[0] <= t < p[0] + p[1]), pedazos[-1])
         f = carpeta / f"{prefijo}-{k:03d}.jpg"
-        subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", f"{t:.1f}", "-i", stream, "-frames:v", "1", "-q:v", "2", str(f)],
-                       capture_output=True)
+        try:
+            subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", f"{max(0, t - ini):.2f}", "-i", url, "-frames:v", "1", "-q:v", "2", str(f)],
+                           capture_output=True, timeout=60)
+        except subprocess.TimeoutExpired:
+            continue  # pedazo lento: se salta
         im = cv2.imread(str(f)) if f.exists() else None
         if im is None: continue
         if det is None: det = cv2.FaceDetectorYN.create(str(AQUI / "modelos" / "yunet.onnx"), "", (im.shape[1], im.shape[0]), 0.8)

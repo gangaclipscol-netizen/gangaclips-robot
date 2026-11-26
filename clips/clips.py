@@ -456,7 +456,7 @@ def encuadre(crudo, ini, fin, yv, hv):
 GROSERIAS = re.compile(r"^(verga|vergas|puta|puto|putas|putos|putamadre|mierda|mierdas|marica|maricas|maric[oó]n|"
                        r"hijueputa|hp|gonorrea|malparido|malparida|culo|culiar|culi[aá]|cagar|cag[oó]|pendejo|pendeja|"
                        r"chimba|pirobo|piroba|perra|zorra|coño|joder|polla|pene|tetas|sexo|porno)$", re.I)
-LIMPIAS = re.compile(r"\b(verga|puto|puta|mierda|marica|huev[oó]n|hijueputa|gonorrea|malparid[oa]|cagad[oa]|cagar|"
+LIMPIAS = re.compile(r"\b(verga|puto|puta|mierda|marica|huev[oó]n|hijueputa|gonorrea|malparid[oa]|cagad[oa]|cagar|cag[oó]|cagu[eé]|cagaste|"
                      r"pep[ií]simo|tangas?|porno|sexo|culo)\b", re.I)
 
 
