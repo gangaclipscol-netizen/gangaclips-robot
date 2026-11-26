@@ -37,9 +37,9 @@ ESTADO = Path(os.environ.get("ADFLOW_ESTADO", AQUI / "estado.json"))
 ESTADO_DIR = Path(os.environ["ADFLOW_ESTADO_DIR"]) if os.environ.get("ADFLOW_ESTADO_DIR") else None  # un archivo por streamer (robots en paralelo)
 BOT = os.environ.get("ADFLOW_BOT", "clips")
 IG = os.environ.get("ADFLOW_IG")  # usuario de Instagram (de ~/.adflow-meta.json) donde publicar solo los clips de Kick
-MAX_PUB = int(os.environ.get("ADFLOW_MAX_PUB", "1"))  # tope de publicaciones por corrida (no llenar la cuenta de golpe)
-MAX_DIA = int(os.environ.get("ADFLOW_MAX_DIA", "5"))  # tope diario de publicaciones automáticas en IG/FB (pocos y buenos)
-ESPACIO_MIN = int(os.environ.get("ADFLOW_ESPACIO_MIN", "120"))  # minutos mínimos entre una publicación y la siguiente
+MAX_PUB = int(os.environ.get("ADFLOW_MAX_PUB", "10"))  # tope de publicaciones por corrida (no llenar la cuenta de golpe)
+MAX_DIA = int(os.environ.get("ADFLOW_MAX_DIA", "40"))  # tope diario en IG/FB (Instagram permite 50; el jurado ya deja pocos)
+ESPACIO_MIN = int(os.environ.get("ADFLOW_ESPACIO_MIN", "0"))  # minutos mínimos entre una publicación y la siguiente
 MIN_PUNTAJE = int(os.environ.get("ADFLOW_MIN_PUNTAJE", "8"))  # solo se hacen los clips que el jurado califica 8+ (pocos y buenos)
 TIKTOK_MIN = int(os.environ.get("ADFLOW_TIKTOK_MIN", "8"))  # puntaje mínimo (1-10) para mandar el clip a los borradores de TikTok
 PUBLICADOS = [0]
@@ -245,6 +245,9 @@ Escoge HASTA {n} momentos, SOLO los que saquen 8 o más (si solo hay 1 o ninguno
 Responde SOLO un JSON: lista de objetos con
 "inicio" (segundo entero), "fin" (segundo entero), "titulo" (gancho para publicar, máx 70 caracteres, en {tono}),
 "gancho" (texto corto en pantalla, máx 6 palabras, MAYÚSCULAS), "por_que" (una frase), "hashtags" (5, incluye #{nombre.lower()}), "puntaje" (1-10).
+TÍTULO, GANCHO Y HASHTAGS LIMPIOS: sin groserías ni palabras sexuales o de drogas (nada de verga, puto, mierda, marica,
+huevón, cagar, pepo, tangas...). Si el momento gira en torno a una grosería, descríbelo con gracia sin decirla
+("La confesión más loca de Chanty 😂"). Lo que se dice EN el clip sí puede tener groserías.
 Ordena de mejor a peor.
 
 {chat}
@@ -305,7 +308,8 @@ Decide el mejor clip DENTRO de este pedazo:
 2. Un solo tema de principio a fin: si cambian de tema, corta antes.
 3. "fin": justo después del remate o cierre de ese tema. Usa un segundo final de línea.
 4. Entre 20 y 60 segundos (20-45 es lo ideal para que lo vean completo).
-5. "titulo" (máx 70 caracteres, en {tono}) y "gancho" (máx 6 palabras, MAYÚSCULAS) tienen que decir lo que de verdad se oye; reescríbelos si no cuadran.
+5. "titulo" (máx 70 caracteres, en {tono}) y "gancho" (máx 6 palabras, MAYÚSCULAS) tienen que decir lo que de verdad se oye; reescríbelos si no cuadran
+   Sin groserías ni palabras sexuales o de drogas en el título ni en el gancho (descríbelo con gracia sin decirlas).
 6. Normas de TikTok (la cuenta ya tiene una advertencia): si en lo que se dice hay apuestas/casino/Stake, alcohol o
    drogas, violencia real o amenazas, insultos o burlas a personas o grupos, contenido sexual, menores, datos personales
    o retos peligrosos, DESCÁRTALO aunque sea gracioso.
@@ -436,6 +440,50 @@ def encuadre(crudo, ini, fin, yv, hv):
     return f"[0:v]split=2[a][b];{fondo};{filtro};[bg][m]overlay=0:{y}[x]", y, vh
 
 
+GROSERIAS = re.compile(r"^(verga|vergas|puta|puto|putas|putos|putamadre|mierda|mierdas|marica|maricas|maric[oó]n|"
+                       r"hijueputa|hp|gonorrea|malparido|malparida|culo|culiar|culi[aá]|cagar|cag[oó]|pendejo|pendeja|"
+                       r"chimba|pirobo|piroba|perra|zorra|coño|joder|polla|pene|tetas|sexo|porno)$", re.I)
+LIMPIAS = re.compile(r"\b(verga|puto|puta|mierda|marica|huev[oó]n|hijueputa|gonorrea|malparid[oa]|cagad[oa]|cagar|"
+                     r"pep[ií]simo|tangas?|porno|sexo|culo)\b", re.I)
+
+
+def tapar(palabra):
+    """Grosería en los subtítulos → primera y última letra con asteriscos (M***A). El audio queda igual."""
+    limpia = re.sub(r"[^\wáéíóúñ]", "", palabra, flags=re.I)
+    if len(limpia) > 2 and GROSERIAS.match(limpia):
+        return palabra.replace(limpia, limpia[0] + "*" * (len(limpia) - 2) + limpia[-1])
+    return palabra
+
+
+def limpiar_titulo(c):
+    """Respaldo por si la IA dejó una grosería en el título, gancho o hashtags: se tapa con asteriscos."""
+    t = lambda x: LIMPIAS.sub(lambda m: m.group(0)[0] + "*" * (len(m.group(0)) - 1), x)
+    c["titulo"], c["gancho"] = t(c["titulo"]), t(c["gancho"])
+    c["hashtags"] = [h for h in c.get("hashtags", []) if not LIMPIAS.search(h)]
+    return c
+
+
+def palabras_groq(video):
+    """Palabras con tiempos usando Whisper large-v3 de Groq (mejor que el modelo chico en CPU). [] si no se puede."""
+    k = os.environ.get("GROQ_API_KEY")
+    if not k: return []
+    import requests, tempfile
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            mp3 = Path(d) / "a.mp3"
+            subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(video), "-vn", "-ac", "1", "-ar", "16000", "-b:a", "48k", str(mp3)], check=True)
+            with open(mp3, "rb") as a:
+                r = requests.post("https://api.groq.com/openai/v1/audio/transcriptions", headers={"Authorization": "Bearer " + k},
+                                  files={"file": ("a.mp3", a, "audio/mpeg")},
+                                  data={"model": "whisper-large-v3", "language": "es", "response_format": "verbose_json",
+                                        "timestamp_granularities[]": "word"}, timeout=180).json()
+        pals = [(w["word"].strip(), float(w["start"]), float(w["end"])) for w in r.get("words", []) if w.get("word", "").strip()]
+        if not pals: print("  x Groq sin palabras:", str(r)[:150], flush=True)
+        return pals
+    except Exception as e:
+        print("  x Groq (subtítulos):", e, flush=True); return []
+
+
 def hacer_clip(c, stream, nombre, slug, t, credito=None):
     t.mkdir(parents=True, exist_ok=True)
     # 20 s de margen a cada lado: la revisión con el audio real puede mover el corte (los subtítulos de Kick fallan)
@@ -443,10 +491,11 @@ def hacer_clip(c, stream, nombre, slug, t, credito=None):
     crudo = t / "crudo.mp4"
     sh(["ffmpeg", "-y", "-ss", f"{a:.2f}", "-i", stream, "-t", f"{b - a:.2f}", "-r", "30", "-c:v", "libx264",
         "-preset", "veryfast", "-crf", "18", "-c:a", "aac", "-b:a", "192k", str(crudo)])
-    todas = V.palabras(crudo)
+    todas = palabras_groq(crudo) or V.palabras(crudo)  # Whisper grande (Groq) entiende mejor el español rápido; si falla, el local
     r = revisar(c, todas) if todas else c
     if r is None: raise RuntimeError("descartado: el momento no da para un buen clip")
     c.update(r)
+    limpiar_titulo(c)
     desde, hasta = (c["_ini"], c["_fin"]) if "_ini" in c else (c["inicio"] - a - 1.0, c["fin"] - a + 1.5)
     pals = [p for p in todas if p[1] >= desde - 0.3 and p[2] <= hasta + 0.3]
     # cortar en límites de palabras: arranca en la primera palabra y termina tras la última
@@ -454,7 +503,7 @@ def hacer_clip(c, stream, nombre, slug, t, credito=None):
     fin = min(V.duracion(crudo), pals[-1][2] + 0.6) if pals else min(V.duracion(crudo), hasta)
     pals = [(w, x - ini, y - ini) for w, x, y in pals]
     fc, yv, hv = encuadre(crudo, ini, fin, 400, 1150)  # el video va centrado entre y=400 y y=1550
-    V.subtitulos(pals, t / "subs.ass")
+    V.subtitulos([(tapar(w), x, y) for w, x, y in pals], t / "subs.ass")  # groserías con asteriscos en pantalla
     # subtítulos chicos (84 → 60, borde 7 → 5) DEBAJO del video y del crédito: no tapan el juego ni al streamer
     s = (t / "subs.ass").read_text(encoding="utf-8").replace(",2,70,70,560,1", f",2,90,90,{H - (yv + hv) - 215},1")
     s = s.replace("Arial Black,84,", "Arial Black,60,").replace(",1,7,3,2,", ",1,5,2,2,")

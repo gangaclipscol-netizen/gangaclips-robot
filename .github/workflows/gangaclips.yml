@@ -56,9 +56,9 @@ jobs:
           ADFLOW_ESTADO_DIR: estado
           ADFLOW_BOT: gangaclips
           ADFLOW_IG: gangaclips.col
-          ADFLOW_MAX_PUB: "1"
-          ADFLOW_MAX_DIA: "5"         # IG/FB: máx. 5 al día…
-          ADFLOW_ESPACIO_MIN: "120"   # …y 2 horas entre uno y otro
+          ADFLOW_MAX_PUB: "10"        # todo lo que apruebe el jurado se publica en IG/FB…
+          ADFLOW_MAX_DIA: "40"        # …hasta 40 al día (Instagram permite 50)
+          ADFLOW_ESPACIO_MIN: "0"
           ADFLOW_SALIDA: ${{ runner.temp }}/clips
           ADFLOW_TMP: ${{ runner.temp }}/clips-tmp
           ADFLOW_FUENTE: /usr/share/fonts/truetype/msttcorefonts/Arial_Black.ttf
