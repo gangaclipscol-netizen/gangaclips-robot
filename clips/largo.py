@@ -56,7 +56,8 @@ tú escoges las PARTES que se conservan, en orden, y todo lo demás se corta. Pa
   Mejor 18 minutos intensos que 35 flojos. Si es una historia corta, puede ser una sola parte.
 - "adelanto": [inicio, fin] de 6 a 12 segundos con el momento MÁS fuerte de la historia (va al principio del video)
 - "capitulos": lista de {{"inicio": segundo del live, "titulo": "corto"}} (4 a 8, el primero en el inicio)
-- "titulo" (máx 95 caracteres, estilo de los ejemplos, en {tono}, sin groserías), "texto_miniatura" (1 a 3 palabras, MAYÚSCULAS),
+- "titulo" (máx 95 caracteres, estilo de los ejemplos, en {tono}, sin groserías), "texto_miniatura" (1 a 3 palabras, MAYÚSCULAS,
+  CONCRETAS sobre lo que pasa: "EN EL CAPITOLIO", "EL TRONO", "NOS ASUSTÓ", "GANA LA PELEA"; nada genérico como "¡SORPRESA!" o "INCREÍBLE"),
   "descripcion" (3-4 líneas que enganchen, sin groserías), "tags" (8 a 12), "puntaje" (1-10, sé exigente), "por_que".
 Responde SOLO un JSON: lista de esos objetos, de mejor a peor.
 

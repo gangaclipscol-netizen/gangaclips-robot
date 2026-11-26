@@ -74,8 +74,9 @@ def escoger_cuadros(cuadros, h):
     key = os.environ.get("GEMINI_API_KEY")
     if not key or not cuadros: return cuadros[:2]
     partes = [{"text": f"Cuadros numerados 0 a {len(cuadros) - 1} de un video de YouTube titulado \"{h['titulo']}\".\n"
-                       "Para la MINIATURA, escoge: \"principal\" = el cuadro con la persona principal más grande y clara y la "
-                       "expresión más exagerada (sorpresa, risa, grito); \"circulo\" = otro cuadro que muestre lo más llamativo de "
+                       "Para la MINIATURA, escoge: \"principal\" = el cuadro donde el STREAMER sale de cuerpo o medio cuerpo, GRANDE, "
+                       "NÍTIDO (sin movimiento) y con la expresión más exagerada (sorpresa, risa, grito); nada de caras chiquitas, "
+                       "borrosas o cortadas; \"circulo\" = otro cuadro que muestre lo más llamativo de "
                        "la historia (el lugar, el invitado, el objeto). Nada de logos de casino, alcohol ni armas.\n"
                        "\"lado\" = dónde está el streamer en el cuadro principal (izquierda, centro o derecha).\n"
                        "Responde SOLO un JSON: {\"principal\": n, \"circulo\": n, \"lado\": \"...\"}"}]
@@ -143,16 +144,17 @@ def miniatura(principal, circulo, texto, dst):
                               min(foto.width, int(x + w / 2 + ancho / 2)), foto.height))
         persona = remove(foto, session=new_session("u2net_human_seg"))
         caja = persona.getbbox()
-        if caja and (caja[2] - caja[0]) * (caja[3] - caja[1]) > 0.04 * persona.width * persona.height:
+        # solo si la persona sale grande en el cuadro original: agrandar mucho un recorte chico la deja borrosa
+        if caja and (caja[3] - caja[1]) >= 0.38 * Image.open(principal).height:
             persona = persona.crop(caja)
-            escala = Hm * 1.05 / persona.height
+            escala = min(Hm * 1.0 / persona.height, 1.6)  # nunca más de 1,6x (se pixela)
             persona = persona.resize((int(persona.width * escala), int(persona.height * escala)), Image.LANCZOS)
             if persona.width > Wm * 0.62:
                 persona = persona.resize((int(Wm * 0.62), int(persona.height * Wm * 0.62 / persona.width)), Image.LANCZOS)
             a = persona.split()[3]
             borde = a.filter(ImageFilter.MaxFilter(15))
             blanco = Image.new("RGBA", persona.size, (255, 255, 255, 255)); blanco.putalpha(borde)
-            x, y = Wm - persona.width + 20, Hm - persona.height + 10
+            x, y = Wm - persona.width + 20, max(0, Hm - persona.height + 10)
             sombra_p = Image.new("RGBA", persona.size, (0, 0, 0, 160)); sombra_p.putalpha(borde.filter(ImageFilter.GaussianBlur(12)))
             lienzo.alpha_composite(sombra_p, (x - 14, y + 10)); lienzo.alpha_composite(blanco, (x, y)); lienzo.alpha_composite(persona, (x, y))
     except Exception as e:
