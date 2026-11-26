@@ -646,6 +646,11 @@ def tiktok_borrador(f):
                               data=v, timeout=300).json()
         if r.get("publish_id"): print("  📥 TikTok: enviado a borradores", flush=True); return True
         print("  x TikTok borrador:", str(r)[:200], flush=True)
+        if "too_many_pending" in str(r):
+            avisar("tiktok_bandeja", "📥 TikTok: tu bandeja de borradores está LLENA. Publica o descarta los borradores de "
+                                    "GangaClips Publisher para que vuelvan a llegar.")
+        elif "access_token" in str(r).lower() or "no está conectado" in str(r):
+            avisar("tiktok_conexion", "🔌 TikTok: se perdió la conexión de GangaClips Publisher. Abre la app web y vuelve a conectar TikTok.")
     except Exception as e:
         print("  x TikTok borrador:", e, flush=True)
     return False
@@ -697,7 +702,10 @@ def publicar_ig(video_publico, caption, usuario, archivo=None):
             u = _subir_directo(r.get("uri") or f"https://rupload.facebook.com/ig-api-upload/v21.0/{r['id']}", tok, archivo)
             if u.get("success"): break
             print(f"  x Instagram subida (intento {intento + 1}):", u, flush=True)
-            if intento == 2: return None
+            if intento == 2:
+                avisar("instagram_subida", "📸 Instagram está rechazando las subidas (ProcessingFailedError). Los clips te llegan "
+                                           "a Telegram para subirlos a mano mientras se le pasa.")
+                return None
             time.sleep(60 if intento == 0 else 180)
         for _ in range(40):  # Meta procesa el video (1-5 min)
             time.sleep(10)
@@ -711,6 +719,21 @@ def publicar_ig(video_publico, caption, usuario, archivo=None):
         return url
     except Exception as e:
         print("  x Instagram:", e, flush=True); return None
+
+
+def avisar(tipo, mensaje, cada_horas=6):
+    """Aviso a Telegram cuando algo falla, sin repetir el mismo tipo más de una vez cada `cada_horas`
+    (los robots corren cada 15 min; la marca de tiempo vive en clips/estado/_avisos.json y se sube con el estado)."""
+    f = (ESTADO_DIR or AQUI) / "_avisos.json"
+    ahora = datetime.datetime.now(datetime.timezone.utc)
+    try: hechos = json.loads(f.read_text(encoding="utf-8"))
+    except Exception: hechos = {}
+    ultimo = hechos.get(tipo)
+    if ultimo and ahora - datetime.datetime.fromisoformat(ultimo) < datetime.timedelta(hours=cada_horas): return
+    print(f"  🔔 aviso: {mensaje}", flush=True)
+    if TG.texto(f"⚠️ GangaClips · {mensaje}", bot=BOT):
+        hechos[tipo] = ahora.isoformat()
+        f.parent.mkdir(parents=True, exist_ok=True); f.write_text(json.dumps(hechos, indent=1), encoding="utf-8")
 
 
 def _pausa_fb(horas=None):
@@ -745,7 +768,12 @@ def publicar_fb(video_publico, descripcion, usuario, archivo=None):
         s = requests.post(f"{G}/{pid}/video_reels", data={"upload_phase": "start", "access_token": tok}, timeout=60).json()
         if "video_id" not in s:
             print("  x Facebook:", str(s)[:300], flush=True)
-            if (s.get("error") or {}).get("code") == 368: _pausa_fb(horas=12)  # "limitamos la frecuencia…": no insistir
+            if (s.get("error") or {}).get("code") == 368:  # "limitamos la frecuencia…": no insistir
+                _pausa_fb(horas=12)
+                avisar("facebook_368", "📘 Facebook frenó la página por publicar seguido (límite de spam). El robot pausa Facebook "
+                                       "12 h y sigue con Instagram y Telegram. No tienes que hacer nada.")
+            elif s.get("error"):
+                avisar("facebook_error", f"📘 Facebook no deja publicar: {str(s.get('error', {}).get('message', s))[:200]}")
             return None
         u = (_subir_directo(s["upload_url"], tok, archivo) if archivo else
              requests.post(s["upload_url"], headers={"Authorization": "OAuth " + tok, "file_url": video_publico}, timeout=300).json())
@@ -934,6 +962,8 @@ def procesar(canal, n, vod_idx=None):
         try: elegidos = escoger(nombre, v["session_title"], ventana, cuantos, chat=chat)
         except Exception as e:
             print("  x la IA no respondió:", e, flush=True); elegidos = []
+            avisar("ia_sin_cupo", f"🤖 La IA (Gemini y Groq) no respondió y no se pudieron escoger clips de {nombre}. "
+                                  f"Suele ser falta de cupo; se reintenta solo en la próxima vuelta.")
         # en vivo: no cortar momentos pegados al borde (todavía no se ven completos)
         elegidos = [c for c in elegidos if c["inicio"] >= desde - 60 and (not en_vivo or c["fin"] <= hasta - 20)]
         print("  la IA escogió:", len(elegidos), flush=True)

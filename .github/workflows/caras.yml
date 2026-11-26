@@ -38,3 +38,11 @@ jobs:
           git diff --cached --quiet && exit 0
           git commit -q -m "Banco de caras: ${{ inputs.canal }}"
           for i in 1 2 3 4 5; do git pull --rebase -q && git push -q && break; sleep $((RANDOM % 10 + 3)); done
+      - name: Avisar por Telegram si algo falló
+        if: failure()
+        env:
+          TOKEN: ${{ secrets.GANGACLIPS_TELEGRAM_TOKEN }}
+          CHAT: ${{ secrets.GANGACLIPS_TELEGRAM_CHAT_ID }}
+        run: |
+          curl -s -o /dev/null "https://api.telegram.org/bot$TOKEN/sendMessage" --data-urlencode "chat_id=$CHAT" \
+            --data-urlencode "text=⚠️ GangaClips: falló «${{ github.workflow }}». Detalle: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

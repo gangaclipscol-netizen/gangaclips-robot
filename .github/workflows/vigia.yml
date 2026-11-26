@@ -33,3 +33,11 @@ jobs:
         run: |
           # cada streamer tiene su propia fila (concurrency en gangaclips.yml): si su robot sigue trabajando, este espera turno
           for s in ${NUEVOS:-westcol}; do gh workflow run gangaclips.yml -R "$GITHUB_REPOSITORY" -f canal="$s" && echo "robot de $s arrancado"; done
+      - name: Avisar por Telegram si algo falló
+        if: failure()
+        env:
+          TOKEN: ${{ secrets.GANGACLIPS_TELEGRAM_TOKEN }}
+          CHAT: ${{ secrets.GANGACLIPS_TELEGRAM_CHAT_ID }}
+        run: |
+          curl -s -o /dev/null "https://api.telegram.org/bot$TOKEN/sendMessage" --data-urlencode "chat_id=$CHAT" \
+            --data-urlencode "text=⚠️ GangaClips: falló «${{ github.workflow }}». Detalle: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
