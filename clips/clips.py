@@ -1038,7 +1038,9 @@ def procesar(canal, n, vod_idx=None):
                     texto_c = (f"{c['titulo']}\n\n🎥 {nombre} en kick.com/{slug}\n\n"
                                + hashtags_5([camp.get("codigo", "")] + camp.get("hashtags", []), c.get("hashtags", [])))
                     TG.enviar(f, f"💰 CAMPAÑA {camp.get('nombre', nombre)} · puntaje {puntaje}/10\n"
-                                 f"👉 Súbelo en TikTok desde {camp.get('cuenta', '')} (NO en gangaclips) y envíalo en Quanty en menos de 48 h\n\n{texto_c}", bot=BOT)
+                                 f"1️⃣ Guárdalo y súbelo a Quanty → Clips → + Subir clip (cuenta {camp.get('cuenta', '')}) para que lo aprueben\n"
+                                 f"2️⃣ Cuando lo aprueben, publícalo en TikTok desde {camp.get('cuenta', '')} (NO en gangaclips) con el texto de abajo\n"
+                                 f"3️⃣ Pega el enlace del TikTok en Quanty\n\n{texto_c}", bot=BOT)
                     TG.copiable(texto_c, bot=BOT)
                     continue
                 hechas = {}

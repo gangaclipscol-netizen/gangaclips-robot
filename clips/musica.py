@@ -170,9 +170,11 @@ def labotella(n):
 def entregar(clave, f, descripcion):
     camp = CAMPANAS[clave]
     texto = f"{descripcion}\n\n" + C.hashtags_5([camp["codigo"]], camp["hashtags"].split())  # TikTok: máx. 5 (el código primero)
-    TG.enviar(f, f"💰 CAMPAÑA {camp['nombre']}\n👉 Súbelo en TikTok desde @clipscuanticos (NO en gangaclips).\n"
-                 f"🎵 AL SUBIR agrega este sonido (obligatorio): {camp['sonido']}\n"
-                 f"📤 Después envíalo en Quanty → Clips → + Subir clip.", bot=C.BOT)
+    TG.enviar(f, f"💰 CAMPAÑA {camp['nombre']}\n"
+                 f"1️⃣ Guárdalo y súbelo a Quanty → Clips → + Subir clip (cuenta @clipscuanticos) para que lo aprueben\n"
+                 f"2️⃣ Cuando lo aprueben, publícalo en TikTok desde @clipscuanticos (NO en gangaclips) con el texto de abajo\n"
+                 f"🎵 y AGREGA este sonido al publicar (obligatorio): {camp['sonido']}\n"
+                 f"3️⃣ Pega el enlace del TikTok en Quanty", bot=C.BOT)
     TG.copiable(texto, bot=C.BOT)
     print("✓ entregado", f.name, flush=True)
 
