@@ -39,6 +39,7 @@ BOT = os.environ.get("ADFLOW_BOT", "clips")
 IG = os.environ.get("ADFLOW_IG")  # usuario de Instagram (de ~/.adflow-meta.json) donde publicar solo los clips de Kick
 MAX_PUB = int(os.environ.get("ADFLOW_MAX_PUB", "6"))  # tope de publicaciones por corrida (no llenar la cuenta de golpe)
 MAX_DIA = int(os.environ.get("ADFLOW_MAX_DIA", "40"))  # tope diario de publicaciones automáticas (la API de Instagram permite 50)
+MIN_PUNTAJE = int(os.environ.get("ADFLOW_MIN_PUNTAJE", "8"))  # solo se hacen los clips que el jurado califica 8+ (pocos y buenos)
 TIKTOK_MIN = int(os.environ.get("ADFLOW_TIKTOK_MIN", "8"))  # puntaje mínimo (1-10) para mandar el clip a los borradores de TikTok
 PUBLICADOS = [0]
 FIJO = [False]  # --n a mano: sacar exactamente esa cantidad
@@ -167,14 +168,67 @@ def yt_bajar(vid, t):
 
 
 # ---------- 2. la IA escoge ----------
-def escoger(nombre, titulo_live, trans, n, extra="", tono="español colombiano"):
-    lineas = "\n".join(f"[{int(t)}] {x}" for t, x in trans)
-    prompt = f"""Eres editor de clips virales de streamers latinos. Esta es la transcripción automática (puede tener errores)
-del live "{titulo_live}" de {nombre}. Cada línea empieza con [segundo del video].
+# Lo que hace que un clip de streamer se vuelva viral en TikTok/Reels/Shorts (lo que miden: % que se queda a los 3 s,
+# tiempo visto, % que lo ve completo o lo repite, compartidos). Se usa al escoger y en el jurado final.
+CRITERIO_VIRAL = """CÓMO SE CALIFICA (sé MUY exigente: la mayoría de momentos de un live NO sirven):
+- GANCHO (lo más importante): en los primeros 1-2 segundos ya pasa algo o se dice una frase que obliga a quedarse
+  (pregunta, confesión, grito, algo absurdo, conflicto). Nada de saludos, "bueno", explicaciones ni silencios al inicio.
+- REMATE: termina en un punto alto (el chiste, la reacción, la respuesta, el giro). Si se diluye, no sirve.
+- SE ENTIENDE SOLO: alguien que nunca ha visto al streamer lo entiende sin contexto.
+- EMOCIÓN FUERTE: risa de verdad, sorpresa, rabia, ternura, "no puede ser", polémica sana. Lo "interesante a medias" no pasa.
+- RETENCIÓN: sin partes muertas; 20 a 45 segundos es lo ideal (más largo solo si la historia lo vale).
+- REPETIBLE/COMPARTIBLE: dan ganas de verlo otra vez o mandárselo a alguien.
+- El chat del stream es la mejor prueba: si explotó (muchos mensajes, risas KEKW/jaja, OOOO/NOOO), el momento pegó.
+Puntaje 1-10: 9-10 = la gente lo compartiría; 8 = muy bueno; 7 o menos = NO sirve, no lo propongas."""
 
-Escoge los {n} MEJORES momentos para clips de TikTok/YouTube Shorts/Reels:
+
+def chat_picos(slug, v, desde, hasta, paso=20):
+    """Mide el chat de Kick a lo largo del live: mensajes por minuto y % de risas/sorpresa cada `paso` segundos.
+    Devuelve texto con los picos (segundo del video) para la IA, o "" si no se pudo."""
+    try:
+        cid = json.loads(get(f"https://kick.com/api/v2/channels/{slug}"))["id"]
+        ini = datetime.datetime.strptime(v["start_time"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=datetime.timezone.utc)
+    except Exception as e:
+        print("  x chat: no pude leer el canal:", e, flush=True); return ""
+    RISA = re.compile(r"KEKW|LUL|OMEGALUL|ICANT|LMAO|kek|ja{0,1}ja|JAJ|xd|😂|🤣|💀", re.I)
+    WOW = re.compile(r"OOOO|NOOO|WOW|Pog|😱|😳|🔥|HYPE|CLAP", re.I)
+    def uno(t):
+        cuando = (ini + datetime.timedelta(seconds=t)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        try:
+            m = json.loads(get(f"https://kick.com/api/v2/channels/{cid}/messages?start_time={cuando}"))["data"]["messages"]
+        except Exception:
+            return None
+        if len(m) < 3: return (t, len(m), 0.0, 0.0)
+        hs = sorted(datetime.datetime.fromisoformat(x["created_at"].replace("Z", "+00:00")) for x in m)
+        seg = max(1.0, (hs[-1] - hs[0]).total_seconds())
+        txt = [x.get("content") or "" for x in m]
+        return (t, len(m) / seg * 60, sum(bool(RISA.search(s)) for s in txt) / len(m), sum(bool(WOW.search(s)) for s in txt) / len(m))
+    with ThreadPoolExecutor(12) as ex:
+        datos = [d for d in ex.map(uno, range(int(desde), int(hasta), paso)) if d]
+    if len(datos) < 5: return ""
+    # Kick da la hora de los mensajes al segundo: el ritmo solo distingue chat lento/rápido; lo que más dice es el
+    # % de risas y de sorpresa (KEKW, jaja, OOOO, NOOO...). Ritmo normal = mediana del live.
+    normal = sorted(d[1] for d in datos)[len(datos) // 2] or 1
+    nota = lambda d: (d[2] + d[3]) * min(2.0, d[1] / normal)
+    puntos = [d for d in sorted(datos, key=nota, reverse=True)[:15] if d[2] + d[3] >= 0.25]
+    if not puntos: return ""
+    lineas = [f"[{t}] {ri:.0%} risas, {w:.0%} sorpresa/hype" + (" · chat muy rápido" if r > normal * 1.3 else "")
+              for t, r, ri, w in sorted(puntos)]
+    print(f"  chat: {len(datos)} muestras, picos en {[p[0] for p in sorted(puntos)][:8]}...", flush=True)
+    return ("PICOS DEL CHAT (el chat reacciona 3-20 s DESPUÉS de lo que pasa en el video; un pico con muchas risas casi\n"
+            "siempre marca un clip bueno, pero igual tiene que entenderse solo):\n" + "\n".join(lineas))
+
+
+def escoger(nombre, titulo_live, trans, n, extra="", tono="español colombiano", chat=""):
+    lineas = "\n".join(f"[{int(t)}] {x}" for t, x in trans)
+    prompt = f"""Eres el mejor editor de clips virales de streamers latinos (TikTok, Reels, Shorts). Esta es la transcripción
+automática (puede tener errores) del live "{titulo_live}" de {nombre}. Cada línea empieza con [segundo del video].
+
+{CRITERIO_VIRAL}
+
+Escoge HASTA {n} momentos, SOLO los que saquen 8 o más (si solo hay 1 o ninguno, devuelve eso; mejor pocos que relleno):
 - Que se entiendan solos, sin contexto (historia completa, chiste con remate, reacción fuerte, polémica, consejo, momento épico o emotivo).
-- Duración entre 25 y 70 segundos. "inicio" = el segundo donde EMPIEZA ese tema (no antes): lo prometido en el título
+- Duración entre 20 y 60 segundos. "inicio" = el segundo donde EMPIEZA ese tema (no antes): lo prometido en el título
   tiene que oírse en los primeros segundos. "fin" = justo después del remate o cierre.
 - UN SOLO TEMA por clip: si en medio cambian de tema, termina el clip antes del cambio.
 - El título describe lo que se oye en el clip, sin inventar ni prometer algo que no pasa.
@@ -192,10 +246,12 @@ Responde SOLO un JSON: lista de objetos con
 "gancho" (texto corto en pantalla, máx 6 palabras, MAYÚSCULAS), "por_que" (una frase), "hashtags" (5, incluye #{nombre.lower()}), "puntaje" (1-10).
 Ordena de mejor a peor.
 
+{chat}
+
 TRANSCRIPCIÓN:
 {lineas}"""
     clips = json.loads(re.search(r"\[.*\]", ia(prompt), re.S).group(0))
-    return [c for c in clips if 15 <= c["fin"] - c["inicio"] <= 90][:n]
+    return [c for c in clips if 15 <= c["fin"] - c["inicio"] <= 90 and int(c.get("puntaje") or 0) >= MIN_PUNTAJE][:n]
 
 
 def ia(prompt):
@@ -247,14 +303,17 @@ Decide el mejor clip DENTRO de este pedazo:
 1. "inicio": el segundo donde EMPIEZA el tema (lo del título se tiene que oír en los primeros 3 segundos). Usa un segundo inicial de línea.
 2. Un solo tema de principio a fin: si cambian de tema, corta antes.
 3. "fin": justo después del remate o cierre de ese tema. Usa un segundo final de línea.
-4. Entre 20 y 75 segundos.
+4. Entre 20 y 60 segundos (20-45 es lo ideal para que lo vean completo).
 5. "titulo" (máx 70 caracteres, en {tono}) y "gancho" (máx 6 palabras, MAYÚSCULAS) tienen que decir lo que de verdad se oye; reescríbelos si no cuadran.
 6. Normas de TikTok (la cuenta ya tiene una advertencia): si en lo que se dice hay apuestas/casino/Stake, alcohol o
    drogas, violencia real o amenazas, insultos o burlas a personas o grupos, contenido sexual, menores, datos personales
    o retos peligrosos, DESCÁRTALO aunque sea gracioso.
 Si el tema prometido no está aquí, no sale un buen clip o rompe una norma, responde {{"descartar": true, "motivo": "..."}}.
 
-Responde SOLO un JSON: {{"inicio": n, "fin": n, "titulo": "...", "gancho": "...", "descartar": false}}
+7. JURADO: califica el clip FINAL (con estos cortes) con este criterio y pon "puntaje". Si saca menos de 8, descártalo.
+""" + CRITERIO_VIRAL + f"""
+
+Responde SOLO un JSON: {{"inicio": n, "fin": n, "titulo": "...", "gancho": "...", "puntaje": n, "descartar": false}}
 
 LO QUE SE DICE:
 """ + "\n".join(frases)
@@ -267,7 +326,10 @@ LO QUE SE DICE:
     try: ini, fin = float(r["inicio"]), float(r["fin"])
     except Exception: return c
     if not 15 <= fin - ini <= 90: return c
-    c = {**c, "_ini": ini, "_fin": fin, "titulo": r.get("titulo") or c["titulo"], "gancho": r.get("gancho") or c["gancho"]}
+    puntaje = int(r.get("puntaje") or c.get("puntaje") or 0)
+    if puntaje < MIN_PUNTAJE:
+        print(f"  ✗ el jurado le dio {puntaje}/10 (mínimo {MIN_PUNTAJE}): no se hace", flush=True); return None
+    c = {**c, "_ini": ini, "_fin": fin, "puntaje": puntaje, "titulo": r.get("titulo") or c["titulo"], "gancho": r.get("gancho") or c["gancho"]}
     return c
 
 
@@ -768,7 +830,8 @@ def procesar(canal, n, vod_idx=None):
         cuantos = min(canal.get("clips_max", 15), max(1 if desde or en_vivo else n, cuantos))
         if FIJO[0]: cuantos = n
         print(f"  clips a sacar: {cuantos}", flush=True)
-        try: elegidos = escoger(nombre, v["session_title"], ventana, cuantos)
+        chat = chat_picos(slug, v, max(0, desde - 60), hasta) if not FIJO[0] else ""  # dónde explotó el chat (risas, hype)
+        try: elegidos = escoger(nombre, v["session_title"], ventana, cuantos, chat=chat)
         except Exception as e:
             print("  x la IA no respondió:", e, flush=True); elegidos = []
         # en vivo: no cortar momentos pegados al borde (todavía no se ven completos)
