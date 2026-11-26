@@ -67,6 +67,44 @@ def lives(slug):
     return json.loads(get(f"https://kick.com/api/v2/channels/{slug}/videos"))
 
 
+def whisper_kick(base, desde=0, max_horas=2.0, trozo=600):
+    """Transcripción con Whisper de Groq cuando Kick no tiene subtítulos (canales chicos). Escucha desde `desde` hasta
+    el final del live (máx. `max_horas`), en trozos de 10 min de audio liviano. Devuelve [(segundo, texto)]."""
+    k = os.environ.get("GROQ_API_KEY")
+    if not k: return []
+    import requests, tempfile, time
+    try:
+        pl = get(base + "/160p30/playlist.m3u8")
+        total = sum(float(l.split(":")[1].split(",")[0]) for l in pl.splitlines() if l.startswith("#EXTINF:"))
+    except Exception as e:
+        print("  x Whisper: no pude leer el live:", e, flush=True); return []
+    ini = max(0.0, max(desde - 60, total - max_horas * 3600))
+    print(f"  sin subtítulos de Kick: escucho con Whisper min {ini / 60:.0f} a {total / 60:.0f}", flush=True)
+    out = []
+    with tempfile.TemporaryDirectory() as d:
+        t = ini
+        while t < total - 5:
+            mp3 = Path(d) / f"{int(t)}.mp3"
+            subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", f"{t:.1f}", "-i", base + "/160p30/playlist.m3u8", "-t", str(trozo),
+                            "-vn", "-ac", "1", "-ar", "16000", "-b:a", "32k", str(mp3)], capture_output=True)
+            if mp3.exists() and mp3.stat().st_size > 10000:
+                for intento in range(4):
+                    with open(mp3, "rb") as a:
+                        r = requests.post("https://api.groq.com/openai/v1/audio/transcriptions", headers={"Authorization": "Bearer " + k},
+                                          files={"file": (mp3.name, a, "audio/mpeg")},
+                                          data={"model": "whisper-large-v3-turbo", "language": "es", "response_format": "verbose_json"},
+                                          timeout=300)
+                    if r.status_code == 429:  # cupo por hora de Groq: esperar y seguir
+                        time.sleep(60 * (intento + 1)); continue
+                    for s in r.json().get("segments", []):
+                        txt = " ".join(s.get("text", "").split())
+                        if txt: out.append((t + float(s["start"]), txt))
+                    break
+            t += trozo
+    print(f"  Whisper: {len(out)} frases", flush=True)
+    return out
+
+
 def transcripcion(base):
     """Subtítulos automáticos en español del live -> [(segundo_del_video, texto)] sin repetidos."""
     pl = get(base + "/subtitles/es/playlist.m3u8")
@@ -944,6 +982,8 @@ def procesar(canal, n, vod_idx=None):
         except Exception as e:  # sin subtítulos (live muy reciente o borrado): no reintentar cada 15 min
             print("  x sin transcripción:", e, flush=True); trans = []
         desde = vivo.get(v["slug"], 0) if vod_idx is None else 0
+        if len(trans) < 20:  # canales chicos: Kick no les hace subtítulos → escuchar el audio con Whisper (Groq)
+            trans = whisper_kick(base, desde)
         hasta = trans[-1][0] if trans else 0
         print(f"live{' EN VIVO' if en_vivo else ''}: {v['session_title']} (min {desde / 60:.0f} a {hasta / 60:.0f})", flush=True)
         if en_vivo and hasta - desde < 12 * 60:
