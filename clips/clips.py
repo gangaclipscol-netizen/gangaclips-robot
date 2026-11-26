@@ -759,6 +759,17 @@ def publicar_ig(video_publico, caption, usuario, archivo=None):
         print("  x Instagram:", e, flush=True); return None
 
 
+def hashtags_5(obligatorios, otros=(), maximo=5):
+    """TikTok deja máximo 5 hashtags: primero los obligatorios (el código de la campaña, el del streamer) y se completa
+    con los demás sin repetir."""
+    out = []
+    for h in list(obligatorios) + list(otros):
+        h = (h or "").strip()
+        if h and not h.startswith("#"): h = "#" + h
+        if h and h.lower() not in [x.lower() for x in out]: out.append(h)
+    return " ".join(out[:maximo])
+
+
 def avisar(tipo, mensaje, cada_horas=6):
     """Aviso a Telegram cuando algo falla, sin repetir el mismo tipo más de una vez cada `cada_horas`
     (los robots corren cada 15 min; la marca de tiempo vive en clips/estado/_avisos.json y se sube con el estado)."""
@@ -1024,8 +1035,8 @@ def procesar(canal, n, vod_idx=None):
                 puntaje = int(c.get("puntaje") or 0)
                 camp = canal.get("campana")
                 if camp:  # streamer de una campaña (Quanty): NO va a GangaClips; te llega listo para subir en la otra cuenta
-                    texto_c = (f"{c['titulo']}\n\n🎥 {nombre} en kick.com/{slug}\n\n{tags} {' '.join(camp.get('hashtags', []))} "
-                               f"{camp.get('codigo', '')}").strip()
+                    texto_c = (f"{c['titulo']}\n\n🎥 {nombre} en kick.com/{slug}\n\n"
+                               + hashtags_5([camp.get("codigo", "")] + camp.get("hashtags", []), c.get("hashtags", [])))
                     TG.enviar(f, f"💰 CAMPAÑA {camp.get('nombre', nombre)} · puntaje {puntaje}/10\n"
                                  f"👉 Súbelo en TikTok desde {camp.get('cuenta', '')} (NO en gangaclips) y envíalo en Quanty en menos de 48 h\n\n{texto_c}", bot=BOT)
                     TG.copiable(texto_c, bot=BOT)
