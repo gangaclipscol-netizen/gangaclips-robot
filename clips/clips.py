@@ -235,10 +235,13 @@ Escoge HASTA {n} momentos, SOLO los que saquen 9 o 10 (si solo hay 1 o ninguno, 
 - El título describe lo que se oye en el clip, sin inventar ni prometer algo que no pasa.
 - PROHIBIDO (normas de TikTok/Instagram; la cuenta ya tiene una advertencia, ante la duda NO lo escojas):
   música sonando o cantando (copyright); casino, apuestas, Stake, slots o hablar de apostar; tomar alcohol, drogas,
-  vapear o fumar; armas reales o violencia real, peleas, amenazas; insultos o burlas a una persona, grupo, raza,
-  religión, orientación o discapacidad; contenido sexual o insinuaciones; menores de edad en pantalla; retos peligrosos;
-  datos personales de terceros (teléfonos, direcciones); desinformación médica o política; dinero fácil o estafas.
-  La violencia DENTRO de un videojuego está bien si no es lo central ni es gore.
+  vapear o fumar; armas reales o violencia real, peleas, amenazas reales; odio o burlas contra un grupo (raza,
+  religión, orientación, discapacidad) o acoso a una persona real; contenido sexual explícito; menores de edad en
+  pantalla; retos peligrosos; datos personales de terceros (teléfonos, direcciones); desinformación médica o política;
+  dinero fácil o estafas. La violencia DENTRO de un videojuego está bien si no es lo central ni es gore.
+  LAS GROSERÍAS SÍ ESTÁN PERMITIDAS en lo que se dice ("marica", "parce", "mierda", "hijueputa", "gonorrea", "puta",
+  insultos de cariño o de rabia entre amigos o contra el juego): así hablan los streamers y TikTok lo permite; en los
+  subtítulos se tapan solas. NO descartes un momento por groserías.
 - No repitas el mismo tema.
 {extra}
 
@@ -310,9 +313,11 @@ Decide el mejor clip DENTRO de este pedazo:
 4. Entre 20 y 60 segundos (20-45 es lo ideal para que lo vean completo).
 5. "titulo" (máx 70 caracteres, en {tono}) y "gancho" (máx 6 palabras, MAYÚSCULAS) tienen que decir lo que de verdad se oye; reescríbelos si no cuadran
    Sin groserías ni palabras sexuales o de drogas en el título ni en el gancho (descríbelo con gracia sin decirlas).
-6. Normas de TikTok (la cuenta ya tiene una advertencia): si en lo que se dice hay apuestas/casino/Stake, alcohol o
-   drogas, violencia real o amenazas, insultos o burlas a personas o grupos, contenido sexual, menores, datos personales
-   o retos peligrosos, DESCÁRTALO aunque sea gracioso.
+6. Normas de TikTok (la cuenta ya tiene una advertencia): si el TEMA del clip es apuestas/casino/Stake, consumo de
+   alcohol o drogas, violencia real o amenazas reales, odio contra un grupo o acoso a una persona real, contenido sexual
+   explícito, menores, datos personales o retos peligrosos, DESCÁRTALO aunque sea gracioso.
+   Las GROSERÍAS normales (marica, parce, mierda, hijueputa, gonorrea, puta, insultos entre amigos o contra el juego) SÍ
+   están permitidas en lo que se dice: NO descartes por eso (en los subtítulos se tapan solas).
 Si el tema prometido no está aquí, no sale un buen clip o rompe una norma, responde {{"descartar": true, "motivo": "..."}}.
 
 7. JURADO: califica el clip FINAL (con estos cortes) con este criterio y pon "puntaje". Si saca menos de 9, descártalo.
