@@ -39,6 +39,7 @@ BOT = os.environ.get("ADFLOW_BOT", "clips")
 IG = os.environ.get("ADFLOW_IG")  # usuario de Instagram (de ~/.adflow-meta.json) donde publicar solo los clips de Kick
 MAX_PUB = int(os.environ.get("ADFLOW_MAX_PUB", "6"))  # tope de publicaciones por corrida (no llenar la cuenta de golpe)
 MAX_DIA = int(os.environ.get("ADFLOW_MAX_DIA", "40"))  # tope diario de publicaciones automáticas (la API de Instagram permite 50)
+TIKTOK_MIN = int(os.environ.get("ADFLOW_TIKTOK_MIN", "8"))  # puntaje mínimo (1-10) para mandar el clip a los borradores de TikTok
 PUBLICADOS = [0]
 FIJO = [False]  # --n a mano: sacar exactamente esa cantidad
 UA = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
@@ -177,7 +178,12 @@ Escoge los {n} MEJORES momentos para clips de TikTok/YouTube Shorts/Reels:
   tiene que oírse en los primeros segundos. "fin" = justo después del remate o cierre.
 - UN SOLO TEMA por clip: si en medio cambian de tema, termina el clip antes del cambio.
 - El título describe lo que se oye en el clip, sin inventar ni prometer algo que no pasa.
-- EVITA: cuando suena música o canta (copyright), casino/apuestas, odio, contenido sexual, datos personales de terceros.
+- PROHIBIDO (normas de TikTok/Instagram; la cuenta ya tiene una advertencia, ante la duda NO lo escojas):
+  música sonando o cantando (copyright); casino, apuestas, Stake, slots o hablar de apostar; tomar alcohol, drogas,
+  vapear o fumar; armas reales o violencia real, peleas, amenazas; insultos o burlas a una persona, grupo, raza,
+  religión, orientación o discapacidad; contenido sexual o insinuaciones; menores de edad en pantalla; retos peligrosos;
+  datos personales de terceros (teléfonos, direcciones); desinformación médica o política; dinero fácil o estafas.
+  La violencia DENTRO de un videojuego está bien si no es lo central ni es gore.
 - No repitas el mismo tema.
 {extra}
 
@@ -243,7 +249,10 @@ Decide el mejor clip DENTRO de este pedazo:
 3. "fin": justo después del remate o cierre de ese tema. Usa un segundo final de línea.
 4. Entre 20 y 75 segundos.
 5. "titulo" (máx 70 caracteres, en {tono}) y "gancho" (máx 6 palabras, MAYÚSCULAS) tienen que decir lo que de verdad se oye; reescríbelos si no cuadran.
-Si el tema prometido no está aquí o no sale un buen clip, responde {{"descartar": true, "motivo": "..."}}.
+6. Normas de TikTok (la cuenta ya tiene una advertencia): si en lo que se dice hay apuestas/casino/Stake, alcohol o
+   drogas, violencia real o amenazas, insultos o burlas a personas o grupos, contenido sexual, menores, datos personales
+   o retos peligrosos, DESCÁRTALO aunque sea gracioso.
+Si el tema prometido no está aquí, no sale un buen clip o rompe una norma, responde {{"descartar": true, "motivo": "..."}}.
 
 Responde SOLO un JSON: {{"inicio": n, "fin": n, "titulo": "...", "gancho": "...", "descartar": false}}
 
@@ -279,6 +288,46 @@ def overlay(gancho, credito, dst, y_video, h_video):
     im.save(dst)
 
 
+def moderar(f, c):
+    """Revisión de IMAGEN antes de publicar (la de texto no ve los logos): 6 cuadros del clip terminado a Gemini.
+    Devuelve (True, "") si se puede publicar, o (False, motivo). Si no se puede revisar, NO se publica solo."""
+    import base64, tempfile
+    key = os.environ.get("GEMINI_API_KEY")
+    if not key: return False, "no hay IA para revisar la imagen"
+    dur = V.duracion(f); partes = []
+    with tempfile.TemporaryDirectory() as d:
+        for k in range(6):
+            img = Path(d) / f"{k}.jpg"
+            subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", f"{dur * (k + 0.5) / 6:.2f}", "-i", str(f), "-frames:v", "1",
+                            "-vf", "scale=540:-2", "-q:v", "4", str(img)], capture_output=True)
+            if img.exists(): partes.append({"inline_data": {"mime_type": "image/jpeg", "data": base64.b64encode(img.read_bytes()).decode()}})
+    if not partes: return False, "no pude sacar cuadros del clip"
+    prompt = f"""Eres moderador de TikTok. Estos son 6 cuadros de un clip vertical de un streamer (título: "{c['titulo']}").
+La cuenta ya tiene una advertencia: sé estricto. ¿Se ve algo de esto?
+- logos, marcas o pantallas de casino/apuestas (Stake, Roobet, slots, ruletas, cuotas de apuestas)
+- alcohol o personas tomando, drogas, cigarrillos o vapeadores
+- armas reales, sangre o violencia real (la violencia de un videojuego no cuenta si no es gore)
+- desnudos, ropa interior, poses o gestos sexuales
+- menores de edad
+- símbolos de odio, gestos obscenos, datos personales legibles (teléfonos, direcciones)
+Responde SOLO un JSON: {{"ok": true}} si no hay nada, o {{"ok": false, "motivo": "qué se ve y en qué cuadro"}}."""
+    body = {"contents": [{"parts": [{"text": prompt}] + partes}],
+            "generationConfig": {"responseMimeType": "application/json", "temperature": 0}}
+    import time
+    for intento in range(4):
+        for modelo in ("gemini-flash-latest", "gemini-flash-lite-latest"):
+            try:
+                req = urllib.request.Request(f"https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent?key={key}",
+                                             json.dumps(body).encode(), {"Content-Type": "application/json"})
+                r = json.loads(urllib.request.urlopen(req, timeout=120).read())
+                j = json.loads(re.search(r"\{.*\}", r["candidates"][0]["content"]["parts"][0]["text"], re.S).group(0))
+                return (True, "") if j.get("ok") else (False, j.get("motivo", "contenido riesgoso"))
+            except Exception as e:
+                print(f"  moderación ocupada ({modelo}): {str(e)[:80]}", flush=True)
+        time.sleep(20 * (intento + 1))
+    return False, "no se pudo revisar la imagen (IA sin cupo)"
+
+
 def camara_del_streamer(video, ini, fin):
     """Busca la cámara del streamer (cara pequeña y quieta en el mismo lugar = cámara en una esquina sobre el juego).
     Devuelve (x, y, ancho, alto) de la cara en píxeles del video, o None si el streamer llena la pantalla o no se ve."""
@@ -307,28 +356,21 @@ def camara_del_streamer(video, ini, fin):
 
 
 def encuadre(crudo, ini, fin, yv, hv):
-    """Filtro de ffmpeg que deja el video vertical en [x] sin perder lo importante:
-    - gameplay con cámara en una esquina: arriba la cámara grande y abajo el juego a todo lo ancho;
-    - IRL / charla: el video casi completo (4:3) sobre el mismo video difuminado de fondo."""
+    """Filtro de ffmpeg que deja el video vertical en [x] sin cortar lo importante, sobre el mismo video difuminado.
+    Devuelve (filtro, y donde empieza el video, alto del video) para acomodar título, crédito y subtítulos alrededor.
+    - gameplay (cámara chica del streamer en una esquina): el stream COMPLETO 16:9, como se ve en Kick;
+    - IRL / charla (el streamer ocupa la pantalla): el video casi completo (4:3), más grande."""
     fondo = f"[a]scale=-2:{H},crop={W}:{H},boxblur=25:2,eq=brightness=-0.18,setsar=1[bg]"
-    cam = camara_del_streamer(crudo, ini, fin)
-    if cam:
-        x, y, w, h = cam
-        ch, gh = 600, hv - 600  # alto de la cámara y del juego en el video final
-        alto = h * 3.0; ancho = alto * W / ch  # recuadro alrededor de la cara con la proporción del espacio de arriba
-        cx, cy = x + w / 2, y + h / 2 + h * 0.25  # un poco más abajo de la cara para que salgan los hombros
-        print(f"  encuadre: cámara + juego (cara en {int(x)},{int(y)})", flush=True)
-        return (f"[0:v]split=3[a][b][c];{fondo};"
-                f"[b]crop=min(iw\\,{ancho:.0f}):min(ih\\,{alto:.0f}):max(0\\,min(iw-ow\\,{cx - ancho / 2:.0f})):max(0\\,min(ih-oh\\,{cy - alto / 2:.0f})),"
-                f"scale={W}:{ch},setsar=1[cam];"
-                f"[c]crop=iw:min(ih\\,iw*{gh}/{W}):0:(ih-oh)/2,scale={W}:{gh},setsar=1[juego];"
-                f"[bg][cam]overlay=0:{yv}[t1];[t1][juego]overlay=0:{yv + ch},"
-                f"drawbox=x=0:y={yv + ch - 3}:w={W}:h=6:color=0x53fc18@1:t=fill[x]")
-    print("  encuadre: video casi completo (4:3) con fondo difuminado", flush=True)
-    vh = round(W * 3 / 4)
-    return (f"[0:v]split=2[a][b];{fondo};"
-            f"[b]crop=min(iw\\,ih*4/3):ih:(iw-ow)/2:0,scale={W}:{vh},setsar=1[m];"
-            f"[bg][m]overlay=0:{yv + (hv - vh) // 2}[x]")
+    if camara_del_streamer(crudo, ini, fin):
+        print("  encuadre: gameplay completo (16:9)", flush=True)
+        vh = round(W * 9 / 16)
+        filtro = f"[b]scale={W}:{vh},setsar=1[m]"
+    else:
+        print("  encuadre: video casi completo (4:3)", flush=True)
+        vh = round(W * 3 / 4)
+        filtro = f"[b]crop=min(iw\\,ih*4/3):ih:(iw-ow)/2:0,scale={W}:{vh},setsar=1[m]"
+    y = yv + (hv - vh) // 2
+    return f"[0:v]split=2[a][b];{fondo};{filtro};[bg][m]overlay=0:{y}[x]", y, vh
 
 
 def hacer_clip(c, stream, nombre, slug, t, credito=None):
@@ -348,18 +390,17 @@ def hacer_clip(c, stream, nombre, slug, t, credito=None):
     ini = max(0.0, pals[0][1] - 0.25) if pals else max(0.0, desde)
     fin = min(V.duracion(crudo), pals[-1][2] + 0.6) if pals else min(V.duracion(crudo), hasta)
     pals = [(w, x - ini, y - ini) for w, x, y in pals]
+    fc, yv, hv = encuadre(crudo, ini, fin, 400, 1150)  # el video va centrado entre y=400 y y=1550
     V.subtitulos(pals, t / "subs.ass")
-    # subir los subtítulos debajo del video
-    s = (t / "subs.ass").read_text(encoding="utf-8").replace(",2,70,70,560,1", ",2,90,90,430,1")
-    # subtítulos más chicos (84 → 60, borde 7 → 5) y más abajo, para que tapen menos el video
+    # subtítulos chicos (84 → 60, borde 7 → 5) DEBAJO del video y del crédito: no tapan el juego ni al streamer
+    s = (t / "subs.ass").read_text(encoding="utf-8").replace(",2,70,70,560,1", f",2,90,90,{H - (yv + hv) - 215},1")
     s = s.replace("Arial Black,84,", "Arial Black,60,").replace(",1,7,3,2,", ",1,5,2,2,")
     (t / "subs.ass").write_text(s, encoding="utf-8")
-    hv = 1150; yv = 400  # zona del video entre el gancho (arriba) y el crédito (abajo)
-    overlay(c["gancho"], credito or f"{nombre} en Kick  ·  kick.com/{slug}", t / "ov.png", yv, hv)
+    overlay(c["gancho"], credito or f"{nombre} en Kick  ·  kick.com/{slug}", t / "ov.png", yv, hv)  # título arriba, crédito abajo
     titulo = re.sub(r'[\\/:*?"<>|]', "", c["titulo"])[:70].strip()
     dst = SALIDA / nombre / f"{datetime.date.today():%Y-%m-%d} - {titulo}.mp4"
     dst.parent.mkdir(parents=True, exist_ok=True)
-    fc = encuadre(crudo, ini, fin, yv, hv) + f";[x][1:v]overlay=0:0,subtitles=subs.ass:fontsdir={FONTSDIR},format=yuv420p[v]"
+    fc += f";[x][1:v]overlay=0:0,subtitles=subs.ass:fontsdir={FONTSDIR},format=yuv420p[v]"
     sh(["ffmpeg", "-y", "-ss", f"{ini:.2f}", "-to", f"{fin:.2f}", "-i", "crudo.mp4", "-i", "ov.png", "-filter_complex", fc,
         "-map", "[v]", "-map", "0:a", "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-c:a", "aac", "-b:a", "192k",
         "-af", "loudnorm=I=-14:TP=-1.5", "-movflags", "+faststart", str(dst)], cwd=t)
@@ -743,15 +784,23 @@ def procesar(canal, n, vod_idx=None):
                 subir(f, c, nombre, slug, f"https://kick.com/{slug}/videos/{v.get('slug', '')} @ {int(c['inicio'])}s")
                 tags = ' '.join(c.get('hashtags', []))
                 texto = f"{c['titulo']}\n\n🎥 {nombre} en vivo en kick.com/{slug}\nCuenta de fans · No oficial\n\n{tags}"
+                seguro, motivo = moderar(f, c)  # normas de TikTok/IG: lo que se VE (logos de casino, alcohol, armas...)
+                if not seguro:
+                    print("  ⛔ no se publica:", motivo, flush=True)
+                    TG.enviar(f, f"⛔ NO PUBLICAR · {nombre}\nPosible infracción de las normas: {motivo}\n\n{c['titulo']}", bot=BOT)
+                    continue
+                puntaje = int(c.get("puntaje") or 0)
                 hechas = {}
                 if IG and PUBLICADOS[0] < MAX_PUB and cupo_ig_usado(IG) < MAX_DIA:  # publicar solo en Instagram + página de Facebook (API de Meta)
                     hechas = {"Instagram": publicar_ig(None, texto, IG, archivo=f), "Facebook": publicar_fb(None, texto, IG, archivo=f)}
                     if any(hechas.values()): PUBLICADOS[0] += 1
-                borrador = tiktok_borrador(f)  # TikTok: el clip queda en los borradores de la app (2 toques para publicar)
+                # TikTok: a los borradores solo los mejores (muchos clips de otros = "contenido no original" y menos alcance)
+                borrador = puntaje >= TIKTOK_MIN and tiktok_borrador(f)
                 redes ="\n".join(f"✅ {k}: {u}" if u else f"⚠️ {k}: NO se publicó (súbelo tú)" for k, u in hechas.items())
                 if borrador: redes = (redes + "\n" if redes else "") + "📥 TikTok: en tus borradores (toca el mensaje de abajo para copiar el texto)"
                 pendientes = ("" if borrador else "TikTok, ") + "YouTube" + ("" if hechas else ", Instagram, Facebook")
-                TG.enviar(f, f"✂️ {nombre}{' 🔴 EN VIVO' if en_vivo else ''}\n\n{texto}\n\n{redes + chr(10) if redes else ''}⚠️ Publicar a mano: {pendientes}", bot=BOT)
+                estrella = "⭐ RECOMENDADO PARA TIKTOK · " if puntaje >= TIKTOK_MIN else ""
+                TG.enviar(f, f"{estrella}✂️ {nombre}{' 🔴 EN VIVO' if en_vivo else ''} · puntaje {puntaje}/10\n\n{texto}\n\n{redes + chr(10) if redes else ''}⚠️ Publicar a mano: {pendientes}", bot=BOT)
                 TG.copiable(texto, bot=BOT)  # un toque en Telegram = texto copiado para pegarlo en TikTok
                 notas.append(f"{f.name}\n{c['titulo']} {' '.join(c.get('hashtags', []))}\n"
                              f"Crédito: {nombre} en vivo en kick.com/{slug}\n")
