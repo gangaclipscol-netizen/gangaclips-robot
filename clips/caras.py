@@ -119,7 +119,7 @@ def main():
             todos += candidatos(base + "/1080p60/playlist.m3u8", (v.get("duration") or 0) / 1000, a.por_live, d, f"v{k}")
         todos.sort(key=lambda x: -x[1]); todos = todos[:64]  # los 64 más nítidos van a la IA
         notas = calificar(nombre, todos)
-        mejores = sorted([t for t in todos if notas.get(t[0], (0,))[0] >= 8], key=lambda t: -notas[t[0]][0])[:a.guardar]
+        mejores = sorted([t for t in todos if notas.get(t[0], (0,))[0] >= 7], key=lambda t: -notas[t[0]][0])[:a.guardar]
         indice = []
         for i, (f, nit, caja) in enumerate(mejores):
             nota, emo = notas[f]

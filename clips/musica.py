@@ -123,8 +123,11 @@ def vicecity(n):
                 if "sorpresa" in l and "[" in l:
                     try:
                         seg = int(l.split("[")[1].split("]")[0]); hype = int(l.split(",")[1].split("%")[0].strip())
-                        if hype >= 25: tramos.append((hype, base + "/1080p60/playlist.m3u8", max(0, seg - 12)))
+                        if hype >= 12: tramos.append((hype, base + "/1080p60/playlist.m3u8", max(0, seg - 12)))
                     except Exception: pass
+            if len([x for x in tramos if x[1].startswith(base)]) < 6:  # chat flojo: momentos repartidos por el gameplay
+                for k in range(8):
+                    tramos.append((5, base + "/1080p60/playlist.m3u8", (dur - 3 * 3600 if dur > 3 * 3600 else 0) + (k + 0.5) * min(dur, 3 * 3600) / 8))
     tramos.sort(reverse=True)
     print(f"vicecity: {len(tramos)} momentos de acción candidatos", flush=True)
     random.shuffle(tramos[:40])
