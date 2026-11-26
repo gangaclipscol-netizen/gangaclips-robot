@@ -37,8 +37,9 @@ ESTADO = Path(os.environ.get("ADFLOW_ESTADO", AQUI / "estado.json"))
 ESTADO_DIR = Path(os.environ["ADFLOW_ESTADO_DIR"]) if os.environ.get("ADFLOW_ESTADO_DIR") else None  # un archivo por streamer (robots en paralelo)
 BOT = os.environ.get("ADFLOW_BOT", "clips")
 IG = os.environ.get("ADFLOW_IG")  # usuario de Instagram (de ~/.adflow-meta.json) donde publicar solo los clips de Kick
-MAX_PUB = int(os.environ.get("ADFLOW_MAX_PUB", "6"))  # tope de publicaciones por corrida (no llenar la cuenta de golpe)
-MAX_DIA = int(os.environ.get("ADFLOW_MAX_DIA", "40"))  # tope diario de publicaciones automáticas (la API de Instagram permite 50)
+MAX_PUB = int(os.environ.get("ADFLOW_MAX_PUB", "1"))  # tope de publicaciones por corrida (no llenar la cuenta de golpe)
+MAX_DIA = int(os.environ.get("ADFLOW_MAX_DIA", "5"))  # tope diario de publicaciones automáticas en IG/FB (pocos y buenos)
+ESPACIO_MIN = int(os.environ.get("ADFLOW_ESPACIO_MIN", "120"))  # minutos mínimos entre una publicación y la siguiente
 MIN_PUNTAJE = int(os.environ.get("ADFLOW_MIN_PUNTAJE", "8"))  # solo se hacen los clips que el jurado califica 8+ (pocos y buenos)
 TIKTOK_MIN = int(os.environ.get("ADFLOW_TIKTOK_MIN", "8"))  # puntaje mínimo (1-10) para mandar el clip a los borradores de TikTok
 PUBLICADOS = [0]
@@ -597,8 +598,22 @@ def cupo_ig_usado(usuario):
         r = requests.get(f"https://graph.facebook.com/v21.0/{c['ig_id']}/content_publishing_limit",
                          params={"fields": "quota_usage", "access_token": c["page_token"]}, timeout=30).json()
         return int(r["data"][0]["quota_usage"])
+    except Exception as e:  # si no se puede saber, NO publicar (mejor quedarse corto que llenar la cuenta)
+        print("  x no pude leer el cupo de Instagram:", e, flush=True); return 999
+
+
+def minutos_desde_ultimo_ig(usuario):
+    """Minutos desde la última publicación de la cuenta (para dejar mínimo ESPACIO_MIN entre reels). 0 si no se sabe."""
+    cfg = Path.home() / ".adflow-meta.json"
+    try:
+        import requests
+        c = json.loads(cfg.read_bytes().decode("utf-8", errors="replace"))["cuentas"][usuario]
+        r = requests.get(f"https://graph.facebook.com/v21.0/{c['ig_id']}/media",
+                         params={"fields": "timestamp", "limit": 1, "access_token": c["page_token"]}, timeout=30).json()
+        ultimo = datetime.datetime.strptime(r["data"][0]["timestamp"][:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=datetime.timezone.utc)
+        return (datetime.datetime.now(datetime.timezone.utc) - ultimo).total_seconds() / 60
     except Exception as e:
-        print("  x no pude leer el cupo de Instagram:", e, flush=True); return 0
+        print("  x no pude ver la última publicación:", e, flush=True); return 0
 
 
 def publicar_ig(video_publico, caption, usuario, archivo=None):
@@ -854,7 +869,8 @@ def procesar(canal, n, vod_idx=None):
                     continue
                 puntaje = int(c.get("puntaje") or 0)
                 hechas = {}
-                if IG and PUBLICADOS[0] < MAX_PUB and cupo_ig_usado(IG) < MAX_DIA:  # publicar solo en Instagram + página de Facebook (API de Meta)
+                # publicar solo (IG + página de FB): pocos al día y espaciados; si no toca, te llega a Telegram para que decidas
+                if IG and PUBLICADOS[0] < MAX_PUB and cupo_ig_usado(IG) < MAX_DIA and minutos_desde_ultimo_ig(IG) >= ESPACIO_MIN:
                     hechas = {"Instagram": publicar_ig(None, texto, IG, archivo=f), "Facebook": publicar_fb(None, texto, IG, archivo=f)}
                     if any(hechas.values()): PUBLICADOS[0] += 1
                 # TikTok: a los borradores solo los mejores (muchos clips de otros = "contenido no original" y menos alcance)
