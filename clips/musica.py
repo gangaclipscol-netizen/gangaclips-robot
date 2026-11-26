@@ -109,11 +109,11 @@ def vicecity(n):
     print(f"vicecity: {len(tramos)} momentos de acción candidatos", flush=True)
     random.shuffle(tramos[:40])
     for i in range(n):
-        lote = tramos[i * 4:(i + 1) * 4]
-        if len(lote) < 3: break
+        lote = tramos[i * 6:(i + 1) * 6]  # 6 momentos x 5 s = ~30 s
+        if len(lote) < 4: break
         with tempfile.TemporaryDirectory() as d:
             d = Path(d); dst = d / f"vicecity-{i}.mp4"
-            if armar([(src, a, 4.5) for _, src, a in lote], random.choice(camp["textos"]), dst, d):
+            if armar([(src, a, 5.0) for _, src, a in lote], random.choice(camp["textos"]), dst, d):
                 entregar("vicecity", dst, random.choice(camp["textos"]).capitalize()); hechos.append(dst)
     return hechos
 
@@ -137,9 +137,10 @@ def labotella(n):
                                    capture_output=True, text=True).stdout.strip() or 170)
         textos = random.sample(camp["textos"], min(n, len(camp["textos"])))
         for i, texto in enumerate(textos):
-            a = random.uniform(8, max(9, dur - 25))
+            # 3 escenas distintas del video de ~9 s cada una (~27 s), en orden, para que suene más canción
+            inicios = sorted(random.sample(range(8, max(9, int(dur) - 12), 3), 3))
             dst = d / f"labotella-{i}.mp4"
-            if armar([(str(fuente), a, 15)], texto, dst, d):
+            if armar([(str(fuente), a, 9) for a in inicios], texto, dst, d):
                 entregar("labotella", dst, random.choice(camp["descripciones"]))
     return textos
 
