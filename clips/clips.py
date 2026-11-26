@@ -697,6 +697,22 @@ def publicar_ig(video_publico, caption, usuario, archivo=None):
         print("  x Instagram:", e, flush=True); return None
 
 
+def _pausa_fb(horas=None):
+    """Facebook bloquea la página un rato si se publica mucho seguido (error 368). Con horas: guarda la pausa
+    (clips/estado/_facebook.json, la comparten los robots); sin horas: devuelve hasta cuándo sigue, o None."""
+    f = (ESTADO_DIR or AQUI) / "_facebook.json"
+    ahora = datetime.datetime.now(datetime.timezone.utc)
+    if horas:
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(json.dumps({"pausa_hasta": (ahora + datetime.timedelta(hours=horas)).isoformat()}), encoding="utf-8")
+        print(f"  ⏸️ Facebook pide calma: pausa de {horas} h", flush=True); return None
+    try:
+        hasta = datetime.datetime.fromisoformat(json.loads(f.read_text(encoding="utf-8"))["pausa_hasta"])
+        return hasta if hasta > ahora else None
+    except Exception:
+        return None
+
+
 def publicar_fb(video_publico, descripcion, usuario, archivo=None):
     """Publica un Reel en la PÁGINA de Facebook unida al Instagram `usuario` (permiso pages_manage_posts). URL o None.
     video_publico = URL pública del MP4, o archivo = MP4 local (se sube directo)."""
@@ -706,10 +722,15 @@ def publicar_fb(video_publico, descripcion, usuario, archivo=None):
     c = json.loads(cfg.read_bytes().decode("utf-8", errors="replace")).get("cuentas", {}).get(usuario)
     if not c: return None
     G, tok = "https://graph.facebook.com/v21.0", c["page_token"]
+    pausa = _pausa_fb()
+    if pausa: print(f"  ⏸️ Facebook en pausa por límite de spam hasta {pausa:%H:%M} UTC", flush=True); return None
     try:
         pid = c.get("page_id") or requests.get(f"{G}/me", params={"access_token": tok}, timeout=30).json()["id"]
         s = requests.post(f"{G}/{pid}/video_reels", data={"upload_phase": "start", "access_token": tok}, timeout=60).json()
-        if "video_id" not in s: print("  x Facebook:", s, flush=True); return None
+        if "video_id" not in s:
+            print("  x Facebook:", str(s)[:300], flush=True)
+            if (s.get("error") or {}).get("code") == 368: _pausa_fb(horas=12)  # "limitamos la frecuencia…": no insistir
+            return None
         u = (_subir_directo(s["upload_url"], tok, archivo) if archivo else
              requests.post(s["upload_url"], headers={"Authorization": "OAuth " + tok, "file_url": video_publico}, timeout=300).json())
         if not u.get("success"): print("  x Facebook subida:", u, flush=True); return None
