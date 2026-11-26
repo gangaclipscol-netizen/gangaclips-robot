@@ -428,14 +428,11 @@ def encuadre(crudo, ini, fin, yv, hv):
     - gameplay (cámara chica del streamer en una esquina): el stream COMPLETO 16:9, como se ve en Kick;
     - IRL / charla (el streamer ocupa la pantalla): el video casi completo (4:3), más grande."""
     fondo = f"[a]scale=-2:{H},crop={W}:{H},boxblur=25:2,eq=brightness=-0.18,setsar=1[bg]"
-    if camara_del_streamer(crudo, ini, fin):
-        print("  encuadre: gameplay completo (16:9)", flush=True)
-        vh = round(W * 9 / 16)
-        filtro = f"[b]scale={W}:{vh},setsar=1[m]"
-    else:
-        print("  encuadre: video casi completo (4:3)", flush=True)
-        vh = round(W * 3 / 4)
-        filtro = f"[b]crop=min(iw\\,ih*4/3):ih:(iw-ow)/2:0,scale={W}:{vh},setsar=1[m]"
+    # Siempre el stream COMPLETO tal como se ve en Kick (sin recortar nada), sobre el mismo video difuminado
+    # (a Nicolás le gusta así; los recortes 4:3 o la cámara agrandada se veían mal).
+    vh = round(W * 9 / 16)
+    filtro = f"[b]scale={W}:{vh},setsar=1[m]"  # los streams de Kick son 16:9
+    print("  encuadre: stream completo (16:9) con fondo difuminado", flush=True)
     y = yv + (hv - vh) // 2
     return f"[0:v]split=2[a][b];{fondo};{filtro};[bg][m]overlay=0:{y}[x]", y, vh
 

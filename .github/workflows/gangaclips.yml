@@ -35,7 +35,7 @@ jobs:
           done
           command -v ffmpeg
           sudo fc-cache -f > /dev/null
-          pip install -q pillow requests faster-whisper "yt-dlp[default]" opencv-python-headless
+          pip install -q pillow requests faster-whisper "yt-dlp[default]"
       - name: Llave del bot (desde los secretos)
         env:
           TOKEN: ${{ secrets.GANGACLIPS_TELEGRAM_TOKEN }}
