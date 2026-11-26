@@ -64,19 +64,26 @@ Responde SOLO un JSON: lista de esos objetos, de mejor a peor.
 
 TRANSCRIPCIÓN:
 {lineas}"""
-    r = json.loads(re.search(r"\[.*\]", C.ia(prompt), re.S).group(0))
-    buenas = []
-    for h in r:
-        try:
-            t = tramos(h)
-            total = sum(b - a for a, b in t)
-            if t and 600 <= total <= 3000 and int(h.get("puntaje") or 0) >= C.MIN_PUNTAJE:
-                h["inicio"], h["fin"] = t[0][0], t[-1][1]; buenas.append(h)
-            else:
-                print(f"  descartada: {h.get('titulo')} ({total / 60:.0f} min, puntaje {h.get('puntaje')})", flush=True)
-        except Exception as e:
-            print("  x historia mal armada:", e, flush=True)
-    return buenas[:n]
+    for intento in range(2):
+        r = json.loads(re.search(r"\[.*\]", C.ia(prompt), re.S).group(0))
+        buenas, cortas = [], []
+        for h in r:
+            try:
+                t = tramos(h)
+                total = sum(b - a for a, b in t)
+                if not t or int(h.get("puntaje") or 0) < C.MIN_PUNTAJE:
+                    print(f"  descartada: {h.get('titulo')} (puntaje {h.get('puntaje')})", flush=True)
+                elif total < 840:
+                    cortas.append(f"\"{h.get('titulo')}\" suma solo {total / 60:.0f} min"); print("  muy corta:", cortas[-1], flush=True)
+                elif total <= 3000:
+                    h["inicio"], h["fin"] = t[0][0], t[-1][1]; buenas.append(h)
+            except Exception as e:
+                print("  x historia mal armada:", e, flush=True)
+        if buenas or not cortas: return buenas[:n]
+        # muy cortas: una segunda vuelta pidiendo más partes buenas de la MISMA historia (el video debe durar 15-40 min)
+        prompt += ("\n\nOJO: en tu respuesta anterior " + "; ".join(cortas) + ". El video debe sumar 15 a 40 minutos: agrega más"
+                   " partes buenas de la misma historia (conversaciones, reacciones, recorrido) hasta pasar de 15 min, sin relleno.")
+    return []
 
 
 def tramos(h):

@@ -11,6 +11,7 @@ import clips as C
 import telegram_envio as TG
 
 W, H = 1920, 1080
+LADO = [""]  # dónde está el streamer en el cuadro de la miniatura (lo dice la IA al escoger el cuadro)
 FUENTE = os.environ.get("ADFLOW_FUENTE", "C:/Windows/Fonts/ariblk.ttf")
 
 
@@ -76,7 +77,8 @@ def escoger_cuadros(cuadros, h):
                        "Para la MINIATURA, escoge: \"principal\" = el cuadro con la persona principal más grande y clara y la "
                        "expresión más exagerada (sorpresa, risa, grito); \"circulo\" = otro cuadro que muestre lo más llamativo de "
                        "la historia (el lugar, el invitado, el objeto). Nada de logos de casino, alcohol ni armas.\n"
-                       "Responde SOLO un JSON: {\"principal\": n, \"circulo\": n}"}]
+                       "\"lado\" = dónde está el streamer en el cuadro principal (izquierda, centro o derecha).\n"
+                       "Responde SOLO un JSON: {\"principal\": n, \"circulo\": n, \"lado\": \"...\"}"}]
     for f in cuadros:
         partes.append({"inline_data": {"mime_type": "image/jpeg", "data": base64.b64encode(_achicar(f)).decode()}})
     body = {"contents": [{"parts": partes}], "generationConfig": {"responseMimeType": "application/json", "temperature": 0}}
@@ -85,6 +87,7 @@ def escoger_cuadros(cuadros, h):
             req = urllib.request.Request(f"https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent?key={key}",
                                          json.dumps(body).encode(), {"Content-Type": "application/json"})
             j = json.loads(json.loads(urllib.request.urlopen(req, timeout=180).read())["candidates"][0]["content"]["parts"][0]["text"])
+            LADO[0] = j.get("lado", "")
             return [cuadros[int(j["principal"])], cuadros[int(j.get("circulo", 0))]]
         except Exception as e:
             print(f"  miniatura: IA ocupada ({modelo}) {str(e)[:80]}", flush=True)
@@ -99,6 +102,24 @@ def _achicar(f):
     return b.getvalue()
 
 
+def cara_principal(img):
+    """(x, y, ancho, alto) de la cara más grande del cuadro con YuNet (OpenCV), o None."""
+    try:
+        import cv2
+        im = cv2.imread(str(img))
+        det = cv2.FaceDetectorYN.create(str(C.AQUI / "modelos" / "yunet.onnx"), "", (im.shape[1], im.shape[0]), 0.7)
+        _, caras = det.detect(im)
+        if caras is None or not len(caras): return None
+        caras = [c for c in caras if c[3] >= max(f[3] for f in caras) * 0.45]  # sin las caras chiquitas del fondo
+        meta = {"izquierda": 0.2, "centro": 0.5, "derecha": 0.8}.get((LADO[0] or "").lower())
+        elegida = (min(caras, key=lambda f: abs((f[0] + f[2] / 2) / im.shape[1] - meta)) if meta is not None  # la del streamer
+                   else max(caras, key=lambda f: f[2] * f[3]))
+        x, y, w, h = elegida[:4]
+        return float(x), float(y), float(w), float(h)
+    except Exception as e:
+        print("  miniatura: sin detector de caras:", e, flush=True); return None
+
+
 def miniatura(principal, circulo, texto, dst):
     """1280x720 al estilo de los canales grandes: fondo del mismo cuadro (más vivo y oscuro a la izquierda), la persona
     recortada en grande con borde blanco a la derecha, 1-3 palabras gigantes con borde negro y un círculo con zoom."""
@@ -106,14 +127,21 @@ def miniatura(principal, circulo, texto, dst):
     Wm, Hm = 1280, 720
     fondo = ImageOps.fit(Image.open(principal).convert("RGB"), (Wm, Hm))
     fondo = ImageEnhance.Color(fondo).enhance(1.5)
-    fondo = ImageEnhance.Contrast(fondo).enhance(1.15).filter(ImageFilter.GaussianBlur(3))
+    fondo = ImageEnhance.Contrast(fondo).enhance(1.15).filter(ImageFilter.GaussianBlur(14))  # bien difuminado: no compite con la persona
     sombra = Image.new("L", (Wm, Hm)); ds = ImageDraw.Draw(sombra)
     for x in range(Wm): ds.line([(x, 0), (x, Hm)], fill=int(190 * max(0, 1 - x / (Wm * 0.75))))  # oscuro a la izquierda para el texto
     fondo = Image.composite(Image.new("RGB", (Wm, Hm), (0, 0, 0)), fondo, sombra)
     lienzo = fondo.convert("RGBA")
     try:  # persona recortada (rembg); si no está, la miniatura sale sin recorte
         from rembg import remove, new_session
-        persona = remove(Image.open(principal).convert("RGB"), session=new_session("u2net_human_seg"))
+        foto = Image.open(principal).convert("RGB")
+        cara = cara_principal(principal)
+        if cara:  # solo la persona principal: recuadro alrededor de su cara (si no, rembg recorta a todo el grupo en chiquito)
+            x, y, w, h = cara
+            ancho = w * 4.2
+            foto = foto.crop((max(0, int(x + w / 2 - ancho / 2)), max(0, int(y - h * 0.9)),
+                              min(foto.width, int(x + w / 2 + ancho / 2)), foto.height))
+        persona = remove(foto, session=new_session("u2net_human_seg"))
         caja = persona.getbbox()
         if caja and (caja[2] - caja[0]) * (caja[3] - caja[1]) > 0.04 * persona.width * persona.height:
             persona = persona.crop(caja)
@@ -201,8 +229,10 @@ def entregar(nombre, h, carpeta, texto):
                             "-n", "Videos largos listos para subir a YouTube (los hace clips/largo.py)."], capture_output=True)
         nombre_arch = re.sub(r"[^\w.-]+", "_", f"{carpeta.name[:60]}.mp4")
         dst = carpeta / nombre_arch; shutil.copy(carpeta / "video.mp4", dst)
-        r = subprocess.run(["gh", "release", "upload", etiqueta, str(dst), str(carpeta / "miniatura.jpg") if (carpeta / "miniatura.jpg").exists() else str(dst),
-                            "--clobber", "-R", repo], capture_output=True, text=True)
+        subir = [str(dst)]
+        if (carpeta / "miniatura.jpg").exists():  # cada miniatura con su nombre (no se pisan entre videos)
+            mini = carpeta / nombre_arch.replace(".mp4", "-miniatura.jpg"); shutil.copy(carpeta / "miniatura.jpg", mini); subir.append(str(mini))
+        r = subprocess.run(["gh", "release", "upload", etiqueta, *subir, "--clobber", "-R", repo], capture_output=True, text=True)
         if r.returncode == 0: enlace = f"https://github.com/{repo}/releases/download/{etiqueta}/{nombre_arch}"
         else: print("  x no subió al release:", r.stderr[-300:], flush=True)
     cfg = TG._cfg(C.BOT)

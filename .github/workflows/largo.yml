@@ -29,7 +29,7 @@ jobs:
             echo "apt falló (intento $i), reintento en 60 s"; sleep 60
           done
           sudo fc-cache -f > /dev/null
-          pip install -q pillow requests faster-whisper "rembg[cpu]"
+          pip install -q pillow requests faster-whisper "rembg[cpu]" opencv-python-headless
       - name: Llave del bot (desde los secretos)
         env:
           TOKEN: ${{ secrets.GANGACLIPS_TELEGRAM_TOKEN }}
